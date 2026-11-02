@@ -1,0 +1,304 @@
+PRAGMA foreign_keys = ON;
+
+CREATE TABLE IF NOT EXISTS users (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL,
+  username TEXT NOT NULL UNIQUE,
+  password_hash TEXT NOT NULL,
+  role TEXT NOT NULL CHECK (role IN ('SA','KR','TK','SP','AD','PM')),
+  active INTEGER NOT NULL DEFAULT 1,
+  failed_logins INTEGER NOT NULL DEFAULT 0,
+  locked_until INTEGER NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS customers (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL,
+  phone TEXT NOT NULL,
+  email TEXT NULL,
+  address TEXT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS vehicles (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  customer_id INTEGER NOT NULL REFERENCES customers(id) ON DELETE RESTRICT,
+  plate_current TEXT NOT NULL UNIQUE,
+  brand TEXT NOT NULL,
+  model TEXT NOT NULL,
+  year INTEGER NOT NULL,
+  vin TEXT NULL,
+  odometer_last INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS vehicle_plates (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  vehicle_id INTEGER NOT NULL REFERENCES vehicles(id) ON DELETE CASCADE,
+  plate TEXT NOT NULL,
+  plate_norm TEXT NOT NULL,
+  valid_from TEXT NOT NULL,
+  valid_to TEXT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_vehicle_plates_norm ON vehicle_plates(plate_norm);
+
+CREATE TABLE IF NOT EXISTS job_types (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  category TEXT NOT NULL,
+  standard_minutes INTEGER NOT NULL,
+  warranty_days INTEGER NOT NULL DEFAULT 0,
+  component_key TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS job_rates (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  job_type_id TEXT NOT NULL REFERENCES job_types(id) ON DELETE CASCADE,
+  brand TEXT NOT NULL,
+  model TEXT NULL,
+  rate INTEGER NOT NULL,
+  valid_from TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS work_orders (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  wo_number TEXT NOT NULL UNIQUE,
+  vehicle_id INTEGER NOT NULL REFERENCES vehicles(id) ON DELETE RESTRICT,
+  status TEXT NOT NULL CHECK (status IN ('MENUNGGU_PENUGASAN','DITUGASKAN','DIKERJAKAN','SELESAI_DIKERJAKAN','DIPERIKSA','DITUTUP','DIBATALKAN')),
+  received_at TEXT NOT NULL,
+  odometer_in INTEGER NOT NULL,
+  condition_note TEXT NULL,
+  estimate_total INTEGER NOT NULL DEFAULT 0,
+  no_parts_required INTEGER NOT NULL DEFAULT 0,
+  is_warranty_wo INTEGER NOT NULL DEFAULT 0,
+  complaint_id INTEGER NULL,
+  created_by INTEGER NOT NULL REFERENCES users(id),
+  reviewed_by INTEGER NULL REFERENCES users(id),
+  reviewed_at TEXT NULL,
+  closed_at TEXT NULL
+);
+
+CREATE TABLE IF NOT EXISTS wo_issues (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  work_order_id INTEGER NOT NULL REFERENCES work_orders(id) ON DELETE CASCADE,
+  description TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS wo_jobs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  work_order_id INTEGER NOT NULL REFERENCES work_orders(id) ON DELETE CASCADE,
+  job_type_id TEXT NOT NULL REFERENCES job_types(id),
+  technician_id INTEGER NULL REFERENCES users(id),
+  status TEXT NOT NULL DEFAULT 'MENUNGGU' CHECK (status IN ('MENUNGGU','BERJALAN','MENUNGGU_PART','SELESAI')),
+  rate_applied INTEGER NOT NULL,
+  standard_minutes INTEGER NOT NULL,
+  waiting_part INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS time_logs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  wo_job_id INTEGER NOT NULL REFERENCES wo_jobs(id) ON DELETE CASCADE,
+  technician_id INTEGER NOT NULL REFERENCES users(id),
+  clock_on TEXT NOT NULL,
+  clock_off TEXT NULL,
+  duration_minutes INTEGER NULL,
+  waiting_part_minutes INTEGER NOT NULL DEFAULT 0,
+  waiting_part INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS suppliers (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL,
+  contact TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS parts (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  code TEXT NOT NULL UNIQUE,
+  name TEXT NOT NULL,
+  unit TEXT NOT NULL DEFAULT 'Pcs',
+  stock_qty INTEGER NOT NULL DEFAULT 0,
+  min_stock INTEGER NOT NULL DEFAULT 5,
+  buy_price INTEGER NOT NULL DEFAULT 0,
+  sell_price INTEGER NOT NULL DEFAULT 0,
+  supplier_id INTEGER NULL REFERENCES suppliers(id)
+);
+
+CREATE TABLE IF NOT EXISTS stock_movements (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  part_id INTEGER NOT NULL REFERENCES parts(id),
+  type TEXT NOT NULL CHECK (type IN ('IN','OUT','RETURN','ADJUST')),
+  qty INTEGER NOT NULL,
+  unit_cost INTEGER NOT NULL DEFAULT 0,
+  ref_type TEXT NULL,
+  ref_id INTEGER NULL,
+  created_by INTEGER NOT NULL REFERENCES users(id),
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS wo_parts (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  work_order_id INTEGER NOT NULL REFERENCES work_orders(id) ON DELETE CASCADE,
+  wo_job_id INTEGER NULL REFERENCES wo_jobs(id),
+  part_id INTEGER NOT NULL REFERENCES parts(id),
+  qty INTEGER NOT NULL,
+  unit_price INTEGER NOT NULL,
+  returned_qty INTEGER NOT NULL DEFAULT 0,
+  issued_by INTEGER NOT NULL REFERENCES users(id),
+  issued_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS stock_opnames (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  period TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'DRAFT' CHECK (status IN ('DRAFT','SUBMITTED','APPROVED','REJECTED')),
+  created_by INTEGER NOT NULL REFERENCES users(id),
+  approved_by INTEGER NULL REFERENCES users(id),
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  approved_at TEXT NULL
+);
+
+CREATE TABLE IF NOT EXISTS stock_opname_items (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  opname_id INTEGER NOT NULL REFERENCES stock_opnames(id) ON DELETE CASCADE,
+  part_id INTEGER NOT NULL REFERENCES parts(id),
+  system_qty INTEGER NOT NULL,
+  physical_qty INTEGER NOT NULL,
+  diff INTEGER NOT NULL,
+  reason TEXT NULL
+);
+
+CREATE TABLE IF NOT EXISTS invoices (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  invoice_number TEXT NOT NULL UNIQUE,
+  work_order_id INTEGER NOT NULL UNIQUE REFERENCES work_orders(id),
+  issued_at TEXT NOT NULL,
+  subtotal_labor INTEGER NOT NULL,
+  subtotal_parts INTEGER NOT NULL,
+  other_cost INTEGER NOT NULL DEFAULT 0,
+  discount INTEGER NOT NULL DEFAULT 0,
+  total INTEGER NOT NULL,
+  status TEXT NOT NULL DEFAULT 'BELUM_BAYAR' CHECK (status IN ('BELUM_BAYAR','SEBAGIAN','LUNAS'))
+);
+
+CREATE TABLE IF NOT EXISTS invoice_items (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  invoice_id INTEGER NOT NULL REFERENCES invoices(id) ON DELETE CASCADE,
+  item_type TEXT NOT NULL CHECK (item_type IN ('JASA','PART','LAIN')),
+  description TEXT NOT NULL,
+  qty INTEGER NOT NULL,
+  unit_price INTEGER NOT NULL,
+  amount INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS payments (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  invoice_id INTEGER NOT NULL REFERENCES invoices(id) ON DELETE CASCADE,
+  paid_at TEXT NOT NULL,
+  method TEXT NOT NULL,
+  amount INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS warranties (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  vehicle_id INTEGER NOT NULL REFERENCES vehicles(id),
+  wo_job_id INTEGER NOT NULL REFERENCES wo_jobs(id),
+  component_key TEXT NOT NULL,
+  start_date TEXT NOT NULL,
+  end_date TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS complaints (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  vehicle_id INTEGER NOT NULL REFERENCES vehicles(id),
+  work_order_id INTEGER NULL REFERENCES work_orders(id),
+  complaint_date TEXT NOT NULL,
+  description TEXT NOT NULL,
+  prev_component_key TEXT NOT NULL,
+  faulty_component_key TEXT NOT NULL,
+  type TEXT NOT NULL CHECK (type IN ('GARANSI','NON_GARANSI','BELUM')),
+  part_charged INTEGER NOT NULL DEFAULT 1,
+  labor_charged INTEGER NOT NULL DEFAULT 1,
+  cost_borne TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'TERBUKA' CHECK (status IN ('TERBUKA','DALAM_PENANGANAN','SELESAI'))
+);
+
+CREATE TABLE IF NOT EXISTS service_intervals (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  brand TEXT NOT NULL,
+  model TEXT NULL,
+  km_interval INTEGER NOT NULL,
+  month_interval INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS service_followups (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  vehicle_id INTEGER NOT NULL REFERENCES vehicles(id),
+  due_date TEXT NOT NULL,
+  reason TEXT NULL,
+  status TEXT NOT NULL DEFAULT 'PENDING' CHECK (status IN ('PENDING','CONTACTED','SKIPPED')),
+  result TEXT NULL,
+  scheduled_visit_date TEXT NULL,
+  handled_by INTEGER NULL REFERENCES users(id),
+  updated_at TEXT NULL
+);
+
+CREATE TABLE IF NOT EXISTS tools (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  code TEXT NOT NULL UNIQUE,
+  name TEXT NOT NULL,
+  qty INTEGER NOT NULL DEFAULT 1
+);
+
+CREATE TABLE IF NOT EXISTS tool_loans (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  tool_id INTEGER NOT NULL REFERENCES tools(id),
+  technician_id INTEGER NOT NULL REFERENCES users(id),
+  loaned_at TEXT NOT NULL,
+  returned_at TEXT NULL,
+  condition_note TEXT NULL
+);
+
+CREATE TABLE IF NOT EXISTS tech_work_hours (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  technician_id INTEGER NOT NULL REFERENCES users(id),
+  period TEXT NOT NULL,
+  available_hours REAL NOT NULL DEFAULT 160,
+  UNIQUE(technician_id, period)
+);
+
+CREATE TABLE IF NOT EXISTS expenses (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  category TEXT NOT NULL,
+  description TEXT NOT NULL,
+  amount INTEGER NOT NULL,
+  spent_at TEXT NOT NULL,
+  created_by INTEGER NOT NULL REFERENCES users(id)
+);
+
+CREATE TABLE IF NOT EXISTS notifications (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NULL REFERENCES users(id),
+  role TEXT NULL,
+  type TEXT NOT NULL,
+  message TEXT NOT NULL,
+  read_at TEXT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS audit_logs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NULL,
+  action TEXT NOT NULL,
+  entity TEXT NOT NULL,
+  entity_id TEXT NULL,
+  before_json TEXT NULL,
+  after_json TEXT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS settings (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+);

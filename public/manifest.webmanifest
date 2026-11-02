@@ -1,0 +1,31 @@
+{
+  "id": "/",
+  "name": "Brit Auto Workshop Management System",
+  "short_name": "Brit Auto",
+  "description": "Sistem manajemen operasional bengkel spesialis mobil Inggris Brit Auto.",
+  "theme_color": "#14243b",
+  "background_color": "#14243b",
+  "display": "standalone",
+  "start_url": "/",
+  "scope": "/",
+  "icons": [
+    {
+      "src": "/pwa-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/pwa-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/pwa-maskable-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}

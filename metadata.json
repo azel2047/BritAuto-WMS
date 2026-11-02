@@ -1,0 +1,6 @@
+{
+  "name": "Brit Auto WMS",
+  "description": "Workshop Management System untuk operasional bengkel mobil Inggris (Jaguar, Land Rover, Bentley, Rolls-Royce).",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

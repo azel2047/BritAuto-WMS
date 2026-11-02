@@ -1,0 +1,966 @@
+# BRIT AUTO WMS - SATU BERKAS UNTUK GOOGLE AI STUDIO
+Tempel SELURUH isi berkas ini ke kolom prompt Build. Urutan: INSTRUKSI -> AGENT -> PRD -> STRUCTURE -> DESIGN -> SKILL -> KODE DOMAIN.
+
+########## INSTRUKSI UTAMA ##########
+Peran: kamu senior fullstack engineer. Bangun aplikasi "Brit Auto WMS" (Workshop Management System untuk bengkel mobil Inggris) sampai SELESAI dan LANGSUNG BISA DIJALANKAN — bukan kerangka, bukan placeholder.
+
+Dokumen yang WAJIB kamu ikuti (ada di bawah dalam prompt ini): PRD.md (kebutuhan & aturan bisnis), STRUCTURE.md (struktur folder, tabel DB, daftar API, hak akses, data seed), AGENT.md (aturan kerja), DESIGN.md (desain UI), SKILL.md (rumus & resep implementasi), dan bagian KODE DOMAIN di bawah (logika bisnis yang sudah lulus 37 test — salin ke server/domain dan jangan ubah perilakunya).
+
+Stack: React 18 + TypeScript + Vite + Tailwind di frontend; Express + TypeScript di backend dalam satu proyek (server.ts menjalankan Vite middleware saat dev); database SQLite (better-sqlite3) lewat repository layer dengan schema + seed otomatis; auth JWT + RBAC 6 peran; Server-Sent Events untuk layar ruang tunggu; UI bahasa Indonesia, responsif (desktop karyawan + mobile pemilik/PWA).
+
+Cara kerja: kerjakan 7 fase sesuai AGENT.md §4 secara berurutan. Di akhir tiap fase: jalankan test, jalankan aplikasi, uji alur fase itu, perbaiki sampai tidak ada error, lalu lanjut ke fase berikutnya TANPA menunggu saya, sampai seluruh 7 fase selesai.
+
+Hasil akhir yang saya minta:
+1. Aplikasi jalan dengan `npm install && npm run dev`, DB ter-seed otomatis (akun demo: agus/admin/sari/hasan/andi/budi/candra/dedi/spare, sandi Brit2026!).
+2. 8 kriteria penerimaan di PRD §10 dapat didemokan.
+3. `npm test` hijau.
+4. README: cara jalan, akun demo, arsitektur, asumsi yang kamu ambil.
+
+Larangan: jangan menyisakan TODO/fungsi kosong, jangan menaruh logika uang/bonus di komponen React, jangan menambah fitur di luar PRD, jangan membocorkan data pribadi pelanggan di endpoint publik.
+
+Mulai sekarang dari Fase 1. Tulis rencana singkat lalu langsung kode.
+
+########## AGENT ##########
+# AGENT.md — Aturan Kerja untuk AI Pembangun Aplikasi
+
+Kamu adalah **senior fullstack engineer** yang membangun *Brit Auto WMS* sampai **siap demo dan berjalan** (bukan kerangka/placeholder). Baca `PRD.md`, `STRUCTURE.md`, `DESIGN.md`, `SKILL.md` sebelum menulis kode. Jika dokumen bertentangan, urutan prioritas: PRD (aturan bisnis) > STRUCTURE > SKILL > DESIGN.
+
+## 1. Misi
+Bangun aplikasi fullstack yang langsung jalan dengan satu perintah (`npm run dev`), memuat data seed, dan lolos seluruh kriteria penerimaan di PRD §10.
+
+## 2. Aturan utama (wajib)
+1. **Selesaikan, jangan menyisakan TODO.** Tidak ada "implementasi menyusul", `// ...`, fungsi kosong, atau data palsu hard-coded di UI. Semua data tampil dari API.
+2. **Satu fase = satu keadaan yang bisa dijalankan.** Setelah tiap fase aplikasi harus start tanpa error dan alur fase itu bisa dicoba.
+3. **Logika bisnis hanya di `server/domain` (fungsi murni) dan dipanggil `services`.** Route tipis, UI tidak menghitung aturan bisnis sendiri (UI hanya menampilkan hasil server).
+4. **Setiap aturan bisnis BR-01..BR-12 harus punya test** di `server/domain/test` (`node:test`). Jalankan test sebelum menyatakan fase selesai.
+5. **Transaksi untuk operasi multi-tabel** (tutup WO, pemakaian part, opname): all-or-nothing, dan tulis `audit_logs` + `notifications` di transaksi yang sama.
+6. **Validasi semua input dengan zod** di server; kembalikan error berformat `{error:{code,message}}` berbahasa Indonesia.
+7. **Keamanan:** hash kata sandi, JWT dengan `JWT_SECRET` dari env (default dev hanya jika env kosong, beri peringatan di log), RBAC di setiap route, kunci akun 5× gagal/15 menit, jangan pernah mengirim `password_hash` ke klien, endpoint publik ruang tunggu tidak boleh memuat nama/telepon pelanggan.
+8. **Snapshot harga:** `wo_jobs.rate_applied`, `wo_parts.unit_price`, `invoice_items` menyalin harga saat transaksi; perubahan master tidak mengubah data lama. Invoice terbit tidak boleh diubah/dihapus.
+9. **UI bahasa Indonesia**, format Rupiah (`Rp1.500.000`), tanggal `id-ID`, zona waktu Asia/Jakarta.
+10. **Jangan menambah fitur di luar PRD** dan jangan mengganti stack tanpa alasan tertulis di README.
+
+## 3. Alur kerja per fase
+```
+Rencana singkat (≤10 baris) → tulis kode → jalankan test → jalankan app → uji alur manual (curl/UI) → perbaiki → ringkas hasil (apa yang selesai, apa yang diuji)
+```
+Jika menemukan error: baca pesan error lengkap, perbaiki akar masalah, ulangi. Jangan menyembunyikan error dengan `try/catch` kosong.
+
+## 4. Fase pembangunan (urutan tetap)
+| Fase | Isi | Selesai bila |
+|---|---|---|
+| 1 | Fondasi: struktur, DB + schema + seed, auth, RBAC, AppShell, Login | Login semua akun demo, menu sesuai peran |
+| 2 | Customer, kendaraan, riwayat plat, pencarian | Cari plat lama menemukan kendaraan yang sama |
+| 3 | Master pekerjaan/tarif, Work Order, penugasan, job card, clock on/off, layar ruang tunggu (SSE) | Alur WO sampai SELESAI_DIKERJAKAN berjalan; layar tunggu berubah real-time |
+| 4 | Spare part, pemakaian, stok masuk/retur, notifikasi, stock opname | Stok tidak pernah negatif; opname + persetujuan |
+| 5 | Review/tutup WO, invoice (cetak), pembayaran, riwayat, garansi, komplain | BR-09 & BR-12 lolos |
+| 6 | Reminder + scheduler, kinerja & bonus, laporan bulanan + CSV, pengeluaran, alat bengkel | Angka sesuai rumus di SKILL.md |
+| 7 | Dashboard per peran + tampilan mobile pemilik (PWA), audit log UI, polesan, README | Semua kriteria PRD §10 lolos |
+
+## 5. Definition of Done (seluruh aplikasi)
+- [ ] `npm install && npm run dev` jalan tanpa langkah manual tambahan; DB dibuat & di-seed otomatis.
+- [ ] `npm test` hijau; cakupan semua file di `server/domain`.
+- [ ] 8 kriteria penerimaan PRD §10 dapat didemokan.
+- [ ] Tidak ada console error di UI pada alur utama; tidak ada halaman kosong tanpa EmptyState.
+- [ ] README berisi: cara jalan, akun demo, ringkasan arsitektur, asumsi.
+- [ ] Tampilan mobile (lebar 390px) tidak overflow horizontal.
+
+## 6. Gaya kode
+TypeScript `strict`. Nama berkas `camelCase`/`PascalCase` komponen. Fungsi kecil, satu tanggung jawab. Komentar hanya untuk "mengapa" (aturan bisnis → sebut ID `BR-xx`). Tidak ada `any` kecuali di batas I/O dengan alasan.
+
+## 7. Saat ragu
+Pilih opsi paling sederhana yang memenuhi PRD, catat asumsi di README bagian "Asumsi", lanjutkan. Jangan berhenti untuk bertanya kecuali ada konflik langsung antar dokumen.
+
+
+########## PRD ##########
+# PRD — Brit Auto Workshop Management System (WMS)
+
+Versi 1.0 · Kelompok 7 "Gingseng" · Mitra: Bengkel Brit Auto (pemilik: Agus Sugiantu)
+
+## 1. Ringkasan
+WMS adalah aplikasi web fullstack untuk mengelola operasional bengkel mobil Inggris (Jaguar, Land Rover, Bentley, Rolls-Royce): penerimaan kendaraan, work order, penugasan teknisi, clock on/off, spare part, invoice, garansi, service reminder, kinerja/bonus teknisi, laporan bulanan, dan pemantauan pemilik lewat tampilan mobile.
+
+## 2. Masalah yang diselesaikan
+1. Riwayat servis hanya bisa dicari lewat ±460 invoice Excel; jika plat berganti (B128 → B21) riwayat hilang.
+2. Alat bengkel sering hilang, tidak ada pencatatan peminjaman.
+3. Garansi/komplain sulit diputuskan karena komponen yang pernah diganti tidak tercatat.
+4. Data tidak terstruktur dan rawan bocor (tanpa hak akses).
+5. Stok spare part tidak akurat; produktivitas teknisi (dasar bonus) dihitung manual.
+6. Pemilik ingin "lepas tangan" dari administrasi tetapi tetap memantau.
+
+## 3. Tujuan & ukuran sukses
+| Tujuan | Ukuran |
+|---|---|
+| Cari riwayat kendaraan cepat | ≤ 3 detik, termasuk lewat plat lama |
+| Alur servis penuh tercatat | Terima → WO → tugas → clock → part → tutup → invoice, tanpa Excel |
+| Stok akurat | Stok tidak pernah negatif; notifikasi saat ≤ minimum |
+| Bonus objektif | Produktivitas & efisiensi terhitung otomatis |
+| Pemilik memantau | Dashboard mobile: WO aktif, pendapatan, stok rendah, teknisi aktif |
+| Aman | Login wajib, RBAC, audit log, kunci akun setelah 5× gagal |
+
+## 4. Pengguna (peran)
+| Kode | Peran | Tugas utama |
+|---|---|---|
+| SA | Service Advisor | Terima kendaraan, buat WO, periksa & tutup WO, invoice, komplain, reminder |
+| KR | Kepala Regu | Tugaskan teknisi, cetak job card, koreksi waktu |
+| TK | Teknisi | Lihat job card sendiri, clock on/off, pinjam alat |
+| SP | Bagian Spare Part | Pemakaian part ke WO, barang masuk, retur, stock opname |
+| AD | Admin | Master data, tarif, pengguna, pengeluaran, laporan |
+| PM | Pemilik | Pantau, tetapkan tarif/ambang bonus, setujui selisih stok |
+Pelanggan = aktor pasif (hanya melihat layar ruang tunggu tanpa data pribadi).
+
+## 5. Alur utama (service flow pemilik)
+1. Kendaraan datang → SA cari plat → data customer/kendaraan muncul.
+2. SA catat keluhan, odometer, kondisi awal, pilih pekerjaan → **WO berstatus MENUNGGU_PENUGASAN**.
+3. KR menugaskan teknisi per pekerjaan → **DITUGASKAN**, cetak job card.
+4. Teknisi **clock on** → **DIKERJAKAN**; layar ruang tunggu ter-update.
+5. Butuh part → teknisi sebut nomor pekerjaan → SP input part ke WO (stok berkurang otomatis).
+6. Teknisi **clock off**; bila semua pekerjaan selesai → **SELESAI_DIKERJAKAN**.
+7. SA periksa jasa+part+biaya lain → tandai **DIPERIKSA** → tutup → **DITUTUP**, invoice terbit (harga di-snapshot).
+
+## 6. Fitur (MoSCoW)
+### Must (MVP)
+- **Auth & RBAC** (JWT, hash kata sandi, kunci akun 15 menit setelah 5× gagal, audit log).
+- **Data master**: customer, kendaraan (+riwayat plat), jenis pekerjaan, tarif per merek/model, spare part, pengguna.
+- **Pencarian** kendaraan/customer: nama, plat lama/baru, telepon, parsial.
+- **Penerimaan & Work Order** (nomor unik `WO-YYMMDD-NNN`), cetak tanda terima.
+- **Penugasan & Job Card** (PDF/print view).
+- **Clock on/off** (waktu server; satu pekerjaan aktif per teknisi; status "menunggu part" tidak produktif).
+- **Layar ruang tunggu** (real-time via SSE/polling 5 dtk, tanpa data pribadi).
+- **Spare part**: stok, pemakaian ke WO, barang masuk, retur, notifikasi stok minimum, stock opname bulanan + persetujuan selisih.
+- **Penutupan WO & Invoice** (`INV-YYYYMMDD-NNN`, snapshot harga, cetak PDF/print, catat pembayaran).
+- **Riwayat servis & garansi** per kendaraan; **komplain** + klasifikasi garansi.
+- **Dashboard pemilik (mobile)**.
+### Should
+- Service reminder (bulan/odometer) + follow-up CONTACTED/SKIPPED.
+- Kinerja & bonus teknisi; laporan bulanan + ekspor CSV.
+- Pengeluaran bengkel; alat bengkel & peminjaman; impor CSV riwayat.
+### Could
+- Notifikasi per pengguna lanjutan, foto kondisi awal, ekspor PDF laporan.
+
+## 7. Aturan bisnis (wajib dipatuhi kode)
+- **BR-01** Satu kendaraan = satu data walau plat berubah; plat lama/baru disimpan sebagai riwayat.
+- **BR-02** Satu WO banyak pekerjaan; tiap pekerjaan satu teknisi.
+- **BR-03** Teknisi hanya memegang job card; part dicatat Bagian Spare Part.
+- **BR-04** Stok berkurang saat part dikeluarkan ke WO; tidak boleh negatif (transaksi + kunci baris).
+- **BR-05** Notifikasi saat `stok <= stok_minimum`.
+- **BR-06** Produktivitas = jam produktif / jam tersedia × 100%. Bonus bila **> 40%** (ambang diatur Pemilik).
+- **BR-07** Efisiensi = waktu standar / waktu aktual (>100% = efisien).
+- **BR-08** Tarif jasa otomatis dari master (model spesifik > merek > umum; versi terbaru ≤ tanggal servis).
+- **BR-09** Komponen sama dengan yang pernah diganti & masih dalam masa garansi → digaransikan; komponen lain → part dibayar pelanggan, jasa gratis.
+- **BR-10** Reminder menurut interval bulan **atau** km, mana yang lebih dulu.
+- **BR-11** Stock opname bulanan: bandingkan stok sistem vs fisik; selisih perlu persetujuan AD/PM, lalu dibuat penyesuaian.
+- **BR-12** WO hanya bisa ditutup bila semua pekerjaan selesai, part tercatat, dan sudah DIPERIKSA SA.
+
+## 8. Kebutuhan non-fungsional (ringkas)
+- Bahasa UI: Indonesia (istilah bengkel: job card, clock on/off, stock opname).
+- Pencarian ≤ 3 dtk (hingga 5.000 kendaraan); layar tunggu ≤ 10 dtk.
+- Kata sandi di-hash (argon2id bila tersedia, jika tidak bcrypt/scrypt); HTTPS; invoice terbit tidak bisa dihapus.
+- Responsif: desktop (karyawan) + mobile (pemilik); dapat di-install sebagai PWA.
+- Audit log perubahan data penting, tidak bisa diubah pengguna biasa.
+- Data pribadi hanya tampil untuk peran berwenang (UU PDP No. 27/2022).
+
+## 9. Di luar ruang lingkup
+Penjualan mobil/CRM, akuntansi & pajak, pembayaran online, integrasi alat diagnosa, pemesanan part online ke pemasok.
+
+## 10. Kriteria penerimaan (demo)
+1. Login sebagai tiap peran → hanya menu sesuai peran terlihat.
+2. Cari "B 128 XL" (plat lama) → kendaraan yang sama dengan plat baru ditemukan.
+3. Buat WO → tugaskan 2 teknisi → clock on/off → layar tunggu berubah.
+4. Input part melebihi stok → ditolak; pemakaian normal → stok turun & notifikasi muncul saat ≤ minimum.
+5. Tutup WO sebelum semua selesai → ditolak dengan alasan; setelah lengkap → invoice terbit.
+6. Komplain pada komponen yang sama dalam masa garansi → terklasifikasi "Garansi".
+7. Halaman Kinerja menampilkan produktivitas, efisiensi, dan status bonus per teknisi.
+8. Dashboard Pemilik di layar HP menampilkan ringkasan tanpa scroll horizontal.
+
+
+########## STRUCTURE ##########
+# STRUCTURE — Struktur Proyek, Data, dan API
+
+Target platform: **Google AI Studio (Build / fullstack)** → React + Vite + Tailwind di frontend, Express (Node/TypeScript) di backend, satu repo, satu port.
+
+## 1. Stack
+| Lapisan | Pilihan |
+|---|---|
+| Frontend | React 18 + TypeScript + Vite + Tailwind CSS, React Router, TanStack Query, lucide-react |
+| Backend | Node.js + Express + TypeScript, zod (validasi), jsonwebtoken, hash kata sandi (argon2 bila bisa dipasang, selain itu `scrypt` bawaan Node) |
+| Database | **SQLite (better-sqlite3)** lewat *repository layer*; schema + seed otomatis saat start. (Bisa diganti Firestore/PostgreSQL tanpa mengubah service karena semua akses lewat `repositories/`) |
+| Realtime | Server-Sent Events untuk layar ruang tunggu & notifikasi (fallback polling 5 dtk) |
+| PDF | Halaman cetak HTML (`window.print()` dengan CSS `@media print`) untuk job card, tanda terima, invoice |
+| Test | `node:test` untuk `server/src/domain/*` |
+
+## 2. Struktur folder
+```
+brit-auto-wms/
+├─ package.json                 # scripts: dev, build, start, test
+├─ tsconfig.json
+├─ vite.config.ts
+├─ server.ts                    # entry: Express + Vite middleware (dev) / static (prod), port 3000
+├─ .env.example                 # JWT_SECRET, PORT, DB_PATH
+├─ AGENT.md  DESIGN.md  SKILL.md  PRD.md  STRUCTURE.md
+├─ server/
+│  ├─ db/
+│  │  ├─ connection.ts          # buka SQLite, PRAGMA foreign_keys=ON, WAL
+│  │  ├─ schema.sql             # semua CREATE TABLE
+│  │  └─ seed.ts                # data contoh (lihat §6)
+│  ├─ domain/                   # LOGIKA MURNI (tanpa DB) + test (salin dari KODE DOMAIN )
+│  │  ├─ src/ invoice.ts kpi.ts stock.ts workorder.ts warranty.ts reminder.ts plates.ts auth.ts clock.ts
+│  │  └─ test/*.test.ts
+│  ├─ repositories/             # akses DB per entitas
+│  │  ├─ users.ts customers.ts vehicles.ts workOrders.ts jobs.ts timeLogs.ts
+│  │  ├─ parts.ts stock.ts invoices.ts warranties.ts complaints.ts
+│  │  ├─ reminders.ts tools.ts expenses.ts notifications.ts audit.ts
+│  ├─ services/                 # orkestrasi use case (transaksi, audit, notifikasi)
+│  │  ├─ workOrderService.ts  clockService.ts  partService.ts
+│  │  ├─ invoiceService.ts  reminderService.ts  reportService.ts  kpiService.ts
+│  ├─ middleware/
+│  │  ├─ auth.ts                # verifikasi JWT
+│  │  ├─ rbac.ts                # requireRole / can(resource, action)
+│  │  ├─ validate.ts            # zod
+│  │  └─ errors.ts              # AppError → JSON {error:{code,message}}
+│  ├─ routes/                   # satu file per modul (lihat §4)
+│  ├─ events/sse.ts             # hub SSE: 'wo.updated', 'notification'
+│  └─ jobs/scheduler.ts         # cron harian 07:00: hitung reminder
+├─ src/                         # frontend
+│  ├─ main.tsx  App.tsx  routes.tsx
+│  ├─ lib/ api.ts  auth.ts  format.ts (Rupiah, tanggal id-ID)  sse.ts
+│  ├─ components/
+│  │  ├─ ui/ Button Input Select Table Badge Card Modal Toast EmptyState Skeleton
+│  │  ├─ layout/ AppShell Sidebar Topbar BottomNav(mobile)
+│  │  └─ domain/ StatusBadge PlateInput PartPicker JobCardPrint InvoicePrint
+│  ├─ pages/
+│  │  ├─ Login.tsx
+│  │  ├─ Dashboard.tsx          # sesuai peran
+│  │  ├─ workorders/ List.tsx New.tsx Detail.tsx
+│  │  ├─ customers/ List.tsx Detail.tsx   vehicles/ Detail.tsx
+│  │  ├─ assignment/ Board.tsx
+│  │  ├─ technician/ MyJobs.tsx
+│  │  ├─ waiting-room/ Display.tsx   # layar penuh tanpa login
+│  │  ├─ parts/ List.tsx Usage.tsx Opname.tsx
+│  │  ├─ invoices/ List.tsx Detail.tsx
+│  │  ├─ warranty/ Complaints.tsx
+│  │  ├─ reminders/ List.tsx
+│  │  ├─ performance/ Technicians.tsx
+│  │  ├─ reports/ Monthly.tsx
+│  │  ├─ tools/ List.tsx   expenses/ List.tsx
+│  │  ├─ admin/ Users.tsx JobTypes.tsx Rates.tsx Settings.tsx AuditLog.tsx
+│  │  └─ owner/ MobileHome.tsx
+│  └─ styles/ index.css
+└─ README.md                    # cara jalan, akun demo, struktur
+```
+
+## 3. Model data (tabel)
+```
+users(id, name, username UNIQUE, password_hash, role CHECK IN (SA,KR,TK,SP,AD,PM), active, failed_logins, locked_until, created_at)
+customers(id, name, phone NOT NULL, email, address, created_at)
+vehicles(id, customer_id→customers, plate_current UNIQUE, brand, model, year, vin, odometer_last)
+vehicle_plates(id, vehicle_id, plate, valid_from, valid_to)             -- riwayat plat (BR-01)
+job_types(id, name, category, standard_minutes, warranty_days, component_key)
+job_rates(id, job_type_id, brand NULL, model NULL, rate, valid_from)    -- BR-08
+work_orders(id, wo_number UNIQUE, vehicle_id, status, received_at, odometer_in, condition_note, estimate_total, created_by, reviewed_by, reviewed_at, closed_at)
+wo_issues(id, work_order_id, description)
+wo_jobs(id, work_order_id, job_type_id, technician_id NULL, status, rate_applied, standard_minutes, waiting_part INT)
+time_logs(id, wo_job_id, technician_id, clock_on, clock_off NULL, duration_minutes NULL, waiting_part_minutes DEFAULT 0)
+parts(id, code UNIQUE, name, unit, stock_qty, min_stock, buy_price, sell_price, supplier_id NULL)
+suppliers(id, name, contact)
+stock_movements(id, part_id, type IN (IN,OUT,RETURN,ADJUST), qty, unit_cost, ref_type, ref_id, created_by, created_at)
+wo_parts(id, work_order_id, wo_job_id NULL, part_id, qty, unit_price, issued_by, issued_at)
+stock_opnames(id, period 'YYYY-MM', status IN (DRAFT,SUBMITTED,APPROVED,REJECTED), created_by, approved_by)
+stock_opname_items(id, opname_id, part_id, system_qty, physical_qty, diff, reason)
+invoices(id, invoice_number UNIQUE, work_order_id UNIQUE, issued_at, subtotal_labor, subtotal_parts, other_cost, discount, total, status)
+invoice_items(id, invoice_id, item_type IN (JASA,PART,LAIN), description, qty, unit_price, amount)   -- snapshot
+payments(id, invoice_id, paid_at, method, amount)
+warranties(id, vehicle_id, wo_job_id, component_key, start_date, end_date)
+complaints(id, vehicle_id, work_order_id NULL, complaint_date, description, type IN (GARANSI,NON_GARANSI,BELUM), cost_borne, status)
+service_intervals(id, brand, model NULL, km_interval, month_interval)
+service_followups(id, vehicle_id, due_date, status IN (PENDING,CONTACTED,SKIPPED), result, handled_by)
+tools(id, code, name, qty)   tool_loans(id, tool_id, technician_id, loaned_at, returned_at NULL)
+tech_work_hours(id, technician_id, period, available_hours)
+expenses(id, category, description, amount, spent_at, created_by)
+notifications(id, user_id NULL, role NULL, type, message, read_at NULL, created_at)
+audit_logs(id, user_id, action, entity, entity_id, before_json, after_json, created_at)   -- append-only
+settings(key PRIMARY KEY, value)   -- bonus_threshold=0.4, lock_after=5, lock_minutes=15
+```
+Status WO: `MENUNGGU_PENUGASAN → DITUGASKAN → DIKERJAKAN → SELESAI_DIKERJAKAN → DIPERIKSA → DITUTUP` (+ `DIBATALKAN` hanya sebelum DIPERIKSA).
+Status pekerjaan: `MENUNGGU → BERJALAN → SELESAI` (+ `MENUNGGU_PART`).
+
+## 4. API (prefix `/api`, JSON, JWT Bearer kecuali dicatat)
+| Modul | Endpoint |
+|---|---|
+| Auth | `POST /auth/login` · `POST /auth/logout` · `GET /auth/me` |
+| Users (AD,PM) | `GET/POST /users` · `PATCH /users/:id` · `POST /users/:id/reset-password` |
+| Customers | `GET /customers?q=` · `POST` · `GET/PATCH /customers/:id` |
+| Vehicles | `GET /vehicles/search?q=` (plat lama/baru, telp, nama) · `POST /vehicles` · `GET /vehicles/:id` · `POST /vehicles/:id/change-plate` · `GET /vehicles/:id/history` |
+| Master | `GET/POST/PATCH /job-types` · `/job-rates` · `/service-intervals` |
+| Work order | `GET /work-orders?status=` · `POST /work-orders` · `GET /work-orders/:id` · `POST /work-orders/:id/assignments` · `POST /work-orders/:id/review` · `POST /work-orders/:id/close` · `POST /work-orders/:id/cancel` · `GET /work-orders/:id/summary` |
+| Clock | `GET /my-jobs` · `POST /wo-jobs/:id/clock-on` · `POST /wo-jobs/:id/clock-off` · `POST /wo-jobs/:id/waiting-part` |
+| Parts | `GET /parts` · `POST/PATCH /parts` · `POST /work-orders/:id/parts` · `POST /parts/:id/stock-in` · `POST /wo-parts/:id/return` |
+| Opname | `GET/POST /stock-opnames` · `POST /stock-opnames/:id/submit` · `POST /stock-opnames/:id/approve` |
+| Invoice | `GET /invoices` · `GET /invoices/:id` · `POST /invoices/:id/payments` |
+| Warranty | `GET /vehicles/:id/warranties` · `GET/POST /complaints` · `PATCH /complaints/:id` |
+| Reminder | `GET /reminders/due` · `PATCH /followups/:id` |
+| Kinerja | `GET /performance?period=YYYY-MM` · `PUT /work-hours` |
+| Laporan | `GET /reports/monthly?period=` · `GET /reports/monthly.csv` |
+| Alat/Biaya | `/tools` · `/tool-loans` · `/expenses` |
+| Lain | `GET /notifications` · `PATCH /notifications/:id/read` · `GET /audit-logs` (AD,PM) |
+| Publik | `GET /public/waiting-room` (tanpa data pribadi: plat tersamar `B 12** JAG`, model, status) · `GET /public/stream` (SSE) |
+
+Format error: `{ "error": { "code": "STOK_TIDAK_CUKUP", "message": "Stok Kampas Rem tersisa 1" } }`. Kode HTTP: 400 validasi, 401, 403, 404, 409 konflik (mis. clock on ganda), 422 aturan bisnis.
+
+## 5. Matriks hak akses (K=kelola, L=lihat, *=milik sendiri, -=tidak)
+| Fungsi | SA | KR | TK | SP | AD | PM |
+|---|---|---|---|---|---|---|
+| Customer & kendaraan | K | L | - | - | K | L |
+| Master tarif & jenis pekerjaan | L | - | - | - | K | K |
+| Master spare part | L | - | - | K | K | L |
+| Work order (buat/ubah) | K | L | L* | - | L | L |
+| Penugasan & job card | L | K | L* | - | L | L |
+| Clock on/off | - | K (koreksi) | K* | - | L | L |
+| Pemakaian part | L | - | - | K | L | L |
+| Stok & opname | - | - | - | K | K | K (setujui) |
+| Tutup WO & invoice | K | - | - | - | L | L |
+| Reminder & komplain | K | - | - | - | L | L |
+| Alat bengkel | - | K | K* | - | K | L |
+| Kinerja & bonus | - | L | L* | - | L | K |
+| Laporan & pengeluaran | - | - | - | - | K | K |
+| Pengguna & hak akses | - | - | - | - | K | K |
+| Audit log | - | - | - | - | L | L |
+
+## 6. Data seed (agar aplikasi langsung hidup)
+- **Akun demo** (password semua `Brit2026!`): `agus` (PM), `admin` (AD), `sari` (SA), `hasan` (KR), `andi` `budi` `candra` `dedi` (TK), `spare` (SP).
+- 6 customer & 8 kendaraan (Jaguar XF `B 1234 JAG`, Range Rover Evoque `D 777 LR`, Bentley GT `B 9 BNT`, Rolls-Royce Ghost `F 55 RR`, dll.), 1 kendaraan punya plat lama (`B 128 XL` → `B 21 XL`).
+- 12 jenis pekerjaan + tarif (servis berkala Rp1.500.000–Rp1.700.000, ganti kampas rem Rp2.400.000, cek AC, ganti oli, dll.).
+- 25 spare part (beberapa stok ≤ minimum), 3 pemasok.
+- 15 WO historis (campuran status) agar dashboard, laporan 5 bulan, kinerja, dan riwayat tidak kosong.
+- Interval servis: 6 bulan / 10.000 km; 3 kendaraan jatuh tempo.
+
+
+########## DESIGN ##########
+# DESIGN.md — Sistem Desain Brit Auto WMS
+
+Karakter: **profesional, tenang, padat data** (dashboard admin bengkel premium). Navy + emas mengikuti logo Brit Auto. Bukan tampilan "template AI" ungu-gradasi; hindari dekorasi berlebihan.
+
+## 1. Token warna (CSS variables di `src/styles/index.css`, juga dipetakan ke Tailwind)
+```css
+:root{
+  --navy-900:#14243b; --navy-800:#1f3a5f; --navy-700:#2c4f7c; --navy-100:#e6edf6; --navy-50:#f3f6fa;
+  --gold-500:#c9a227; --gold-100:#f6efd2;
+  --bg:#f6f8fb; --surface:#ffffff; --border:#d9e1ec;
+  --text:#14243b; --text-muted:#5b6b82; --text-inverse:#ffffff;
+  --success:#2e8b57; --success-bg:#e4f4ec;
+  --warning:#b36b00; --warning-bg:#fdf1dc;
+  --info:#1f6fb2;    --info-bg:#e2eefa;
+  --danger:#c0392b;  --danger-bg:#fbe7e4;
+  --radius:10px; --radius-sm:6px;
+  --shadow:0 1px 2px rgba(20,36,59,.06),0 4px 12px rgba(20,36,59,.06);
+}
+@media (prefers-color-scheme: dark){
+  :root{ --bg:#0f1826; --surface:#16233a; --border:#2a3b57; --text:#e8eef7; --text-muted:#9fb0c8;
+         --navy-100:#1d2f4c; --navy-50:#142038; --gold-100:#3a3217; }
+}
+```
+Aturan kontras: teks utama ≥ 4.5:1. Warna **tidak boleh menjadi satu-satunya penanda** status (selalu ikon/teks di badge).
+
+## 2. Tipografi
+- Font: **Inter** (fallback `system-ui`). Angka tabel memakai `font-variant-numeric: tabular-nums`.
+- Skala: 12 (caption) · 14 (tabel/isi) · 16 (dasar) · 20 (judul seksi) · 24 (judul halaman) · 32 (angka KPI).
+- Berat: 400 isi, 500 label, 600 judul. Tinggi baris 1.5 (isi), 1.25 (judul).
+
+## 3. Spasi & layout
+- Grid spasi 4px: 4, 8, 12, 16, 24, 32.
+- **Desktop (≥1024px):** Sidebar 240px tetap (navy-800, teks putih, item aktif latar navy-700 + garis kiri emas 3px) + Topbar 56px + konten maks 1280px, padding 24px.
+- **Tablet:** sidebar menjadi ikon 64px.
+- **Mobile (<768px):** BottomNav 4 item (Ringkasan, Kinerja, Stok, Laporan) untuk Pemilik; karyawan memakai menu hamburger. Tabel berubah menjadi daftar kartu.
+- Tap target ≥ 44px; tombol Clock On/Off teknisi **besar** (tinggi 64px, lebar penuh di mobile).
+
+## 4. Komponen
+| Komponen | Spesifikasi |
+|---|---|
+| Button | Primary (navy-800, teks putih), Secondary (outline navy), Danger, Ghost. Satu primary per area. Loading = spinner + disabled. |
+| Input/Select | Tinggi 40px, border `--border`, fokus ring 2px `--navy-700`, label di atas, pesan error merah di bawah (teks, bukan hanya warna). |
+| Table | Header `--navy-50` teks muted 12px uppercase; baris 44px; hover `--navy-50`; sticky header; kolom angka rata kanan; paginasi 20/halaman. |
+| StatusBadge | Pil 24px, ikon + teks. Peta: MENUNGGU_PENUGASAN (warning), DITUGASKAN (info), DIKERJAKAN (info, titik berdenyut), SELESAI_DIKERJAKAN (success), DIPERIKSA (navy), DITUTUP (abu), DIBATALKAN (danger), Stok rendah (warning), Lunas (success). |
+| KPI Card | Judul 12px muted, angka 32px navy, delta kecil; ikon di kiri-atas; border + shadow. |
+| Modal | Lebar 480–640px, tutup dengan Esc, fokus terkunci. |
+| Toast | Kanan-atas, otomatis hilang 4 dtk; sukses/error. |
+| EmptyState | Ikon + 1 kalimat + tombol aksi (mis. "Belum ada work order — Terima Kendaraan"). |
+| Skeleton | Untuk tabel & kartu saat memuat. |
+
+## 5. Halaman kunci (perilaku visual)
+- **Login:** panel tengah, logo "BA" lingkaran navy bergaris emas, judul "Brit Auto WMS", form username/password, pesan kunci akun bila terkunci.
+- **Daftar Work Order:** filter bar (cari plat/customer, status, tanggal) + tombol utama "+ Terima Kendaraan"; tabel dengan StatusBadge.
+- **Detail WO:** header (plat, kendaraan, customer, status) + stepper 6 langkah status; tab *Pekerjaan*, *Part*, *Biaya*, *Riwayat*; panel aksi kanan sesuai peran (hanya aksi yang valid).
+- **Penerimaan:** formulir 2 kolom; saat plat diketik tampil kartu kendaraan & customer + peringatan **garansi aktif** (kotak kuning).
+- **Job Card / Invoice / Tanda terima:** halaman cetak A4 putih, tanpa sidebar (`@media print`), logo + info bengkel di kop.
+- **Layar Ruang Tunggu:** layar penuh gelap (navy-900), teks besar (≥28px), kartu per kendaraan: plat tersamar, model, status berwarna + ikon, waktu mulai; auto-refresh via SSE; tanpa nama/telepon.
+- **Teknisi (MyJobs):** daftar job card; satu kartu per pekerjaan; tombol Clock On/Off sangat besar; timer berjalan; tombol "Menunggu Part".
+- **Stok:** kartu ringkasan (Total SKU, Di bawah minimum, Opname terakhir) + tabel; baris stok rendah ditandai badge kuning.
+- **Kinerja:** tabel teknisi (jam produktif, jam tersedia, produktivitas %, efisiensi, bonus) + batang progres dengan garis ambang 40%.
+- **Laporan Bulanan:** KPI (Pendapatan, Pengeluaran, Laba kotor, Jumlah WO) + grafik batang 5 bulan (recharts) + tabel spare part terlaris + tombol Ekspor CSV.
+- **Beranda Pemilik (mobile):** kartu angka besar vertikal (WO aktif, Selesai hari ini, Pendapatan bulan ini), daftar WO aktif ringkas, peringatan stok rendah & reminder jatuh tempo, teknisi aktif.
+
+## 6. Interaksi & gerak
+Transisi 150ms `ease-out` untuk hover/fokus; tidak ada animasi dekoratif besar. Hormati `prefers-reduced-motion`. Perubahan status real-time disorot singkat (latar `--gold-100` 1,5 dtk).
+
+## 7. Aksesibilitas
+Semua kontrol dapat diakses keyboard dengan fokus terlihat; `aria-label` untuk tombol ikon; tabel memakai `<th scope>`; kontras terpenuhi; `lang="id"`.
+
+## 8. Ikon & aset
+`lucide-react`. Logo: SVG lingkaran navy `#1f3a5f`, cincin emas `#c9a227`, huruf "BA" putih, teks "BRIT AUTO" emas. Favicon dari logo yang sama.
+
+
+########## SKILL ##########
+# SKILL.md — Keahlian Domain & Resep Implementasi
+
+Dokumen ini adalah "buku resep" untuk AI pembangun. Gunakan **persis** rumus dan pola di sini.
+Folder `KODE DOMAIN ` berisi kode domain **yang sudah diuji (37 test lulus)**. Salin `KODE DOMAIN src/*.ts` ke `server/domain/src/` dan `KODE DOMAIN test/*.ts` ke `server/domain/test/` (struktur ini menjaga impor `../src/x.ts` pada test tetap benar; jalankan dengan `node --test --experimental-test-coverage "server/domain/test/**/*.test.ts"`), lalu bangun `services` di atasnya. Jangan menulis ulang logikanya secara berbeda.
+
+## 1. Peta fungsi domain → aturan bisnis
+| Berkas | Fungsi utama | Aturan |
+|---|---|---|
+| `workorder.ts` | `nextStatus(current,event)`, `canCloseWorkOrder({jobs,partsRecorded,reviewedBySA})` | BR-12 |
+| `stock.ts` | `applyStockIn/Out/Return`, `isBelowMin(stock,min)`, `opnameDiff(lines)` | BR-04, 05, 11 |
+| `invoice.ts` | `computeTotals`, `nextNumber(prefix,date,seq)`, `findRate(rates,jobTypeId,brand,model,onDate)` | BR-08 |
+| `kpi.ts` | `calcProductivity(productiveMin, availableMin)`, `calcEfficiency(standard, actual)`, `isBonusEligible(prod, threshold=0.4)` | BR-06, 07 |
+| `reminder.ts` | `isServiceDue({lastServiceDate,lastOdometer,monthInterval?,kmInterval?,today,currentOdometer})` (bulan **atau** km) | BR-10 |
+| `warranty.ts` | `isUnderWarranty(serviceDate,warrantyDays,today)`, `classifyComplaint(prevComponentId,faultyComponentId,underWarranty)` | BR-09 |
+| `plates.ts` | `normalizePlate`, `findVehicleByPlate` | BR-01 |
+| `auth.ts` | `authorize(role,resource,action,isOwner)`, `registerFailedLogin`, `isLocked` | RBAC, kunci akun |
+| `clock.ts` | `canClockOn(logs)`, `durationMinutes(on,off)`, `sumProductiveMinutes(logs)` (log dengan `waitingPart:true` tidak dihitung) | BR-02/03 + waktu produktif |
+
+## 2. Resep (pseudocode wajib diikuti)
+
+### 2.1 Cari kendaraan (BR-01)
+```
+q = normalizePlate(input)            // buang spasi/tanda, huruf besar: "b 128 xl" -> "B128XL"
+cari di vehicle_plates.plate_norm LIKE q%  ∪  customers.name LIKE  ∪  customers.phone LIKE
+kembalikan kendaraan UNIK (group by vehicle_id) + plat aktif + customer
+```
+Simpan kolom `plate_norm` di `vehicle_plates` agar pencarian cepat. `change-plate`: tutup plat lama (`valid_to=today`), tambah plat baru, update `vehicles.plate_current`.
+
+### 2.2 Buat Work Order
+```
+transaksi:
+  wo_number = nextNumber('WO', today, urutan_hari_ini+1)      // WO-261102-001
+  insert work_orders(status=MENUNGGU_PENUGASAN)
+  insert wo_issues[], wo_jobs[] (rate_applied = findRate(...), standard_minutes dari job_type)
+  update vehicles.odometer_last = odometer_in (hanya jika lebih besar)
+  notifikasi ke peran KR: "WO baru menunggu penugasan"
+  audit_log; SSE 'wo.updated'
+```
+Tampilkan peringatan garansi aktif bila `isUnderWarranty` untuk komponen pekerjaan yang dipilih.
+
+### 2.3 Penugasan
+Setiap `wo_job` mendapat `technician_id`. Bila **semua** job sudah bertugas → `nextStatus(status,'ASSIGN')`. Cetak job card per teknisi.
+
+### 2.4 Clock on / off (hanya teknisi pemilik job; KR boleh koreksi)
+```
+clock-on:  canClockOn(timeLogsTeknisi) == false (masih ada log tanpa clockOff) → 409 "Masih ada pekerjaan berjalan"
+           insert time_logs(clock_on = now_server); job.status=BERJALAN
+           bila WO masih DITUGASKAN → nextStatus(..,'CLOCK_ON')
+waiting-part: tandai job MENUNGGU_PART; menit tunggu TIDAK dihitung produktif (sumProductiveMinutes)
+clock-off: clock_off=now_server; duration = durationMinutes(on,off) - waiting_part_minutes; job.status=SELESAI
+           bila semua job SELESAI → nextStatus(..,'ALL_JOBS_DONE')
+semua perubahan → SSE 'wo.updated' (layar ruang tunggu)
+```
+Waktu **selalu dari server**, bukan klien.
+
+### 2.5 Pemakaian part (BR-04/05)
+```
+transaksi + baca stok terbaru:
+  newStock = applyStockOut(stock, qty)        // melempar InsufficientStockError → 422 "STOK_TIDAK_CUKUP"
+  insert wo_parts(unit_price = parts.sell_price)   // snapshot
+  insert stock_movements(type=OUT, ref=wo)
+  update parts.stock_qty
+  if isBelowMin(newStock, min_stock): notifikasi ke SP & PM "Stok <nama> tersisa X (min Y)"
+```
+Retur: `applyReturn` + movement RETURN. Barang masuk: `applyStockIn` + movement IN (+harga beli).
+
+### 2.6 Stock opname (BR-11)
+`DRAFT` (isi fisik per part) → `submit` (hitung `opnameDiff`, wajib alasan untuk selisih) → `approve` oleh AD/PM → untuk tiap selisih buat `stock_movements(type=ADJUST, qty=diff)` dan set `stock_qty = physical_qty`; audit log. Hanya part yang selisih yang dilaporkan.
+
+### 2.7 Review & tutup WO (BR-12)
+```
+review (SA):  syarat status SELESAI_DIKERJAKAN → nextStatus(..,'REVIEW'); simpan reviewed_by/at
+close (SA):   check = canCloseWorkOrder({jobs, partsRecorded, reviewedBySA})
+              !ok → 422 {code:'WO_BELUM_BISA_DITUTUP', message: check.reason}
+              transaksi: 
+                items = jasa (rate_applied per job) + part (wo_parts) + biaya lain (input SA)
+                totals = computeTotals({labor, parts, other, discount})   // diskon > subtotal → ditolak
+                invoice_number = nextNumber('INV', today, seq)            // INV-20261102-001
+                insert invoices + invoice_items (SNAPSHOT) ; WO → DITUTUP
+                buat warranties untuk tiap job yang job_type.warranty_days > 0 (end = today + warranty_days)
+```
+`partsRecorded` = true bila WO memang tidak butuh part **atau** ada minimal satu `wo_parts` (sediakan opsi "WO ini tanpa part" yang dicentang SA).
+
+### 2.8 Komplain & garansi (BR-09)
+```
+classifyComplaint(prevComponentId, faultyComponentId, underWarranty)
+   // underWarranty = isUnderWarranty(serviceDate, warrantyDays, today)
+   komponen sama & garansi aktif → { type:'GARANSI', partCharged:false, laborCharged:false }
+   komponen lain                 → { type:'NON_GARANSI', partCharged:true, laborCharged:false }  // part dibayar, jasa gratis
+```
+Tombol "Buat WO Garansi" membuat WO baru: jasa Rp0 dan part Rp0 untuk GARANSI; jasa Rp0 tetapi part berbayar untuk NON_GARANSI (sesuai `partCharged`/`laborCharged`).
+
+### 2.9 Service reminder (BR-10)
+Scheduler harian 07:00 (dan tombol "Hitung sekarang" untuk demo):
+```
+untuk tiap kendaraan: servis terakhir = WO DITUTUP terbaru bertipe servis berkala
+  interval = service_intervals (model spesifik > merek)
+  if isServiceDue({lastServiceDate,lastOdometer,currentOdometer,today,kmInterval,monthInterval}):
+       buat service_followups(PENDING) bila belum ada yang PENDING; notifikasi ke SA
+```
+SA mencatat hasil → `CONTACTED` (+ tanggal kunjungan) atau `SKIPPED` (+alasan).
+
+### 2.10 Kinerja & bonus (BR-06/07)
+```
+periode YYYY-MM, per teknisi:
+  jam_produktif = Σ time_logs.duration_minutes (tanpa menunggu part) / 60
+  jam_tersedia  = tech_work_hours.available_hours (default 160/bulan, bisa diubah AD/PM)
+  produktivitas = calcProductivity(jam_produktif*60, jam_tersedia*60)       // 0..1
+  efisiensi     = calcEfficiency(Σ standard_minutes job selesai, Σ actual menit)
+  bonus         = isBonusEligible(produktivitas, settings.bonus_threshold)  // > 0.4
+```
+Contoh: 50 jam produktif dari 100 jam = 50% → eligible; 60 menit standar selesai 30 menit = efisiensi 200%.
+
+### 2.11 Laporan bulanan
+Pendapatan = Σ `invoices.total` bulan itu; Pengeluaran = Σ `expenses.amount` + Σ pembelian part (`stock_movements IN × unit_cost`); Laba kotor = pendapatan − pengeluaran. Plus: jumlah WO, 10 part terlaris (Σ qty `wo_parts`), pendapatan 5 bulan terakhir. CSV: UTF-8 dengan BOM, pemisah `;` agar terbuka rapi di Excel Indonesia.
+
+### 2.12 Layar ruang tunggu (publik)
+`GET /api/public/waiting-room` mengembalikan hanya: plat tersamar (`B 12** JAG`: tampilkan 2 karakter awal+akhir), merek/model, status ramah-pelanggan ("Menunggu giliran", "Sedang dikerjakan", "Sedang diperiksa", "Siap diambil"), jam masuk. **Dilarang** memuat nama/telepon/alamat.
+
+### 2.13 RBAC
+`requireRole(...roles)` untuk route; untuk data milik sendiri (TK) gunakan `authorize(role,resource,'read'|'write',isOwner)`. Setiap penolakan → 403 + `audit_logs(action='AKSES_DITOLAK')`.
+
+### 2.14 Auth
+Login: cek `isLocked(user)` → 423; salah sandi → `registerFailedLogin` (5× → kunci 15 menit); sukses → reset hitungan, JWT 8 jam. Tidak pernah membocorkan apakah username atau sandi yang salah.
+
+## 3. Pola UI
+- Semua pemanggilan API lewat `src/lib/api.ts` (menyisipkan token, menangani 401 → ke Login, menampilkan `error.message` di Toast).
+- TanStack Query: kunci `['work-orders',filter]`; setelah mutasi `invalidateQueries`.
+- SSE: `EventSource('/api/public/stream')`; pada event `wo.updated` panggil `invalidateQueries`.
+- Formulir: validasi klien ringan + pesan server ditampilkan di bawah field.
+- Cetak: komponen `PrintLayout` + `window.print()`; CSS `@media print` menyembunyikan Sidebar/Topbar.
+
+## 4. Data uji untuk test domain (angka dari pemilik)
+Oli minimum 5 → notifikasi saat stok 3 (≤5). Servis maintenance contoh Rp500.000 (tarif per model). Plat `B128`→`B21` harus menemukan kendaraan yang sama. Akun terkunci pada kegagalan ke-5, terbuka setelah 15 menit.
+
+## 5. Daftar periksa sebelum menyatakan selesai
+- [ ] Setiap resep §2 punya endpoint + test/uji manual.
+- [ ] Tidak ada perhitungan uang/bonus di komponen React.
+- [ ] Semua tulis-data multi-tabel memakai transaksi.
+- [ ] Endpoint publik tidak membocorkan data pribadi.
+
+
+########## KODE DOMAIN (salin persis ke proyek, sudah lulus 37 test) ##########
+
+===== FILE: server/domain/src/auth.ts =====
+/** FR-AK-02, NFR-01, NFR-02 */
+export type Role = 'SA' | 'KR' | 'TK' | 'SP' | 'AD' | 'PM';
+export type Level = 'K' | 'L' | 'L*' | 'K*' | '-';
+const R: Role[] = ['SA', 'KR', 'TK', 'SP', 'AD', 'PM'];
+const rows: [string, ...Level[]][] = [
+  ['customer_vehicle', 'K', 'L', '-', '-', 'K', 'L'],
+  ['rate_master', 'L', '-', '-', '-', 'K', 'K'],
+  ['part_master', 'L', '-', '-', 'K', 'K', 'L'],
+  ['work_order', 'K', 'L', 'L*', 'L', 'K', 'L'],
+  ['assignment', 'L', 'K', 'L*', '-', 'L', 'L'],
+  ['clock', 'L', 'K', 'K*', '-', 'L', 'L'],
+  ['part_issue', 'L', '-', '-', 'K', 'L', 'L'],
+  ['stock_in_opname', '-', '-', '-', 'K', 'K', 'L'],
+  ['invoice', 'K', '-', '-', '-', 'K', 'L'],
+  ['reminder', 'K', '-', '-', '-', 'L', 'L'],
+  ['tools', '-', 'K', 'L*', '-', 'K', 'L'],
+  ['reports', '-', '-', '-', 'L*', 'L', 'K'],
+  ['users', '-', '-', '-', '-', 'K', 'K'],
+  ['mobile_monitor', '-', '-', '-', '-', '-', 'L'],
+];
+const MATRIX = new Map<string, Record<Role, Level>>(rows.map(([k, ...v]) => [k, Object.fromEntries(R.map((r, i) => [r, v[i]])) as Record<Role, Level>]));
+export function authorize(role: Role, resource: string, action: 'read' | 'write', isOwner = false): boolean {
+  const lvl = MATRIX.get(resource)?.[role] ?? '-';
+  if (lvl === '-') return false;
+  const own = lvl.endsWith('*');
+  if (own && !isOwner) return false;
+  const base = lvl[0];
+  return action === 'read' ? true : base === 'K';
+}
+export interface LoginState { failed: number; lockedUntil: number | null }
+export function registerFailedLogin(s: LoginState, nowMs: number, max = 5, lockMinutes = 15): LoginState {
+  const failed = s.failed + 1;
+  return failed >= max ? { failed, lockedUntil: nowMs + lockMinutes * 60_000 } : { failed, lockedUntil: s.lockedUntil };
+}
+export const isLocked = (s: LoginState, nowMs: number): boolean => s.lockedUntil !== null && nowMs < s.lockedUntil;
+
+
+===== FILE: server/domain/src/clock.ts =====
+/** FR-PG-01..03, FR-PG-07 */
+export interface TimeLog { clockOn: string; clockOff: string | null; waitingPart?: boolean }
+export function canClockOn(logs: TimeLog[]): boolean { return !logs.some(l => l.clockOff === null); }
+export function durationMinutes(clockOn: string, clockOff: string): number {
+  const ms = Date.parse(clockOff) - Date.parse(clockOn);
+  if (!(ms >= 0)) throw new RangeError('clock off tidak boleh sebelum clock on');
+  return Math.round(ms / 60_000);
+}
+/** Waktu tunggu spare part tidak dihitung produktif. */
+export function sumProductiveMinutes(logs: TimeLog[]): number {
+  return logs.filter(l => l.clockOff !== null && !l.waitingPart).reduce((a, l) => a + durationMinutes(l.clockOn, l.clockOff as string), 0);
+}
+
+
+===== FILE: server/domain/src/invoice.ts =====
+/** FR-PI-02..05, BR-08, NFR-15 */
+export interface InvoiceInput { labor: number[]; parts: { qty: number; unitPrice: number }[]; other: number[]; discount: number }
+export function computeTotals(i: InvoiceInput) {
+  const labor = i.labor.reduce((a, b) => a + b, 0);
+  const parts = i.parts.reduce((a, p) => a + p.qty * p.unitPrice, 0);
+  const other = i.other.reduce((a, b) => a + b, 0);
+  const subtotal = labor + parts + other;
+  if (i.discount < 0 || i.discount > subtotal) throw new RangeError('diskon tidak valid');
+  return { labor, parts, other, subtotal, discount: i.discount, total: subtotal - i.discount };
+}
+/** Format default: PREFIX-YYYYMMDD-NNN (format final menunggu konfirmasi sponsor). */
+export function nextNumber(prefix: string, date: Date, seq: number): string {
+  if (!Number.isInteger(seq) || seq < 1) throw new RangeError('seq harus bilangan bulat >= 1');
+  const y = date.getUTCFullYear(), m = String(date.getUTCMonth() + 1).padStart(2, '0'), d = String(date.getUTCDate()).padStart(2, '0');
+  return `${prefix}-${y}${m}${d}-${String(seq).padStart(3, '0')}`;
+}
+export interface Rate { jobTypeId: string; brand: string; model: string | null; rate: number; validFrom: string }
+export class RateNotFoundError extends Error {}
+/** Tarif model spesifik diprioritaskan atas tarif merek; ambil validFrom terbaru yang <= tanggal. */
+export function findRate(rates: Rate[], jobTypeId: string, brand: string, model: string, onDate: string): number {
+  const ok = rates.filter(r => r.jobTypeId === jobTypeId && r.brand === brand && r.validFrom <= onDate);
+  const pick = (list: Rate[]) => list.sort((a, b) => (a.validFrom < b.validFrom ? 1 : -1))[0];
+  const specific = pick(ok.filter(r => r.model === model));
+  if (specific) return specific.rate;
+  const general = pick(ok.filter(r => r.model === null));
+  if (general) return general.rate;
+  throw new RateNotFoundError(`tarif tidak ditemukan: ${jobTypeId}/${brand}/${model}`);
+}
+
+
+===== FILE: server/domain/src/kpi.ts =====
+/** FR-KT-02..04, BR-06, BR-07 */
+export function calcProductivity(productiveMinutes: number, availableMinutes: number): number {
+  if (!(availableMinutes > 0)) throw new RangeError('availableMinutes harus > 0');
+  if (productiveMinutes < 0) throw new RangeError('productiveMinutes tidak boleh negatif');
+  return productiveMinutes / availableMinutes;
+}
+export function calcEfficiency(standardMinutes: number, actualMinutes: number): number {
+  if (!(actualMinutes > 0)) throw new RangeError('actualMinutes harus > 0');
+  if (!(standardMinutes > 0)) throw new RangeError('standardMinutes harus > 0');
+  return standardMinutes / actualMinutes;
+}
+/** Bonus bila produktivitas DI ATAS ambang (contoh Bapak Agus: di atas 40%). */
+export function isBonusEligible(productivity: number, threshold = 0.4): boolean {
+  return productivity > threshold;
+}
+
+
+===== FILE: server/domain/src/plates.ts =====
+/** FR-DM-04, FR-DM-05, BR-01 */
+export const normalizePlate = (p: string): string => p.replace(/[\s.-]/g, '').toUpperCase();
+export interface VehiclePlates { vehicleId: string; plates: string[] }
+export function findVehicleByPlate(vehicles: VehiclePlates[], query: string): string | undefined {
+  const q = normalizePlate(query);
+  return vehicles.find(v => v.plates.some(p => normalizePlate(p) === q))?.vehicleId;
+}
+
+
+===== FILE: server/domain/src/reminder.ts =====
+/** FR-RM-01, BR-10 */
+export interface DueInput { lastServiceDate: string; lastOdometer: number; monthInterval?: number; kmInterval?: number; today: string; currentOdometer: number }
+function addMonths(iso: string, n: number): string {
+  const d = new Date(iso + 'T00:00:00Z'); d.setUTCMonth(d.getUTCMonth() + n); return d.toISOString().slice(0, 10);
+}
+export function isServiceDue(i: DueInput): boolean {
+  const byMonth = i.monthInterval !== undefined && addMonths(i.lastServiceDate, i.monthInterval) <= i.today;
+  const byKm = i.kmInterval !== undefined && i.currentOdometer - i.lastOdometer >= i.kmInterval;
+  return byMonth || byKm;
+}
+
+
+===== FILE: server/domain/src/stock.ts =====
+/** FR-SP-02..06, BR-04, BR-05, BR-11 */
+export class InsufficientStockError extends Error {}
+function assertQty(q: number) { if (!Number.isFinite(q) || q <= 0) throw new RangeError('qty harus > 0'); }
+export function applyStockIn(stock: number, qty: number): number { assertQty(qty); return stock + qty; }
+export function applyStockOut(stock: number, qty: number): number {
+  assertQty(qty);
+  if (qty > stock) throw new InsufficientStockError(`stok ${stock} < diminta ${qty}`);
+  return stock - qty;
+}
+export function applyReturn(stock: number, qty: number): number { assertQty(qty); return stock + qty; }
+/** Notifikasi bila stok sama dengan atau di bawah stok minimum. */
+export function isBelowMin(stock: number, minStock: number): boolean { return stock <= minStock; }
+export interface OpnameLine { partId: string; systemQty: number; physicalQty: number }
+export function opnameDiff(lines: OpnameLine[]) {
+  return lines.map(l => ({ partId: l.partId, diff: l.physicalQty - l.systemQty })).filter(d => d.diff !== 0);
+}
+
+
+===== FILE: server/domain/src/warranty.ts =====
+/** FR-RW-03, BR-09 */
+export function isUnderWarranty(serviceDate: string, warrantyDays: number, today: string): boolean {
+  const end = new Date(serviceDate + 'T00:00:00Z'); end.setUTCDate(end.getUTCDate() + warrantyDays);
+  return today <= end.toISOString().slice(0, 10);
+}
+export interface ComplaintResult { type: 'GARANSI' | 'NON_GARANSI'; partCharged: boolean; laborCharged: boolean }
+/** Komponen sama & masih garansi -> garansi. Komponen lain -> part dibayar pelanggan, jasa gratis. */
+export function classifyComplaint(prevComponentId: string, faultyComponentId: string, underWarranty: boolean): ComplaintResult {
+  if (prevComponentId === faultyComponentId && underWarranty) return { type: 'GARANSI', partCharged: false, laborCharged: false };
+  if (prevComponentId === faultyComponentId) return { type: 'NON_GARANSI', partCharged: true, laborCharged: true };
+  return { type: 'NON_GARANSI', partCharged: true, laborCharged: false };
+}
+
+
+===== FILE: server/domain/src/workorder.ts =====
+/** FR-PT-06, FR-PI-04, BR-12 */
+export type WoStatus = 'MENUNGGU_PENUGASAN' | 'DITUGASKAN' | 'DIKERJAKAN' | 'SELESAI_DIKERJAKAN' | 'DIPERIKSA' | 'DITUTUP' | 'DIBATALKAN';
+export type WoEvent = 'ASSIGN' | 'CLOCK_ON' | 'ALL_JOBS_DONE' | 'REVIEW' | 'CLOSE' | 'CANCEL';
+const T: Record<WoStatus, Partial<Record<WoEvent, WoStatus>>> = {
+  MENUNGGU_PENUGASAN: { ASSIGN: 'DITUGASKAN', CANCEL: 'DIBATALKAN' },
+  DITUGASKAN: { CLOCK_ON: 'DIKERJAKAN', CANCEL: 'DIBATALKAN' },
+  DIKERJAKAN: { ALL_JOBS_DONE: 'SELESAI_DIKERJAKAN', CANCEL: 'DIBATALKAN' },
+  SELESAI_DIKERJAKAN: { REVIEW: 'DIPERIKSA' },
+  DIPERIKSA: { CLOSE: 'DITUTUP' },
+  DITUTUP: {},
+  DIBATALKAN: {},
+};
+export class InvalidTransitionError extends Error {}
+export function nextStatus(current: WoStatus, event: WoEvent): WoStatus {
+  const n = T[current][event];
+  if (!n) throw new InvalidTransitionError(`${current} tidak dapat menerima ${event}`);
+  return n;
+}
+export interface JobLite { status: 'MENUNGGU' | 'BERJALAN' | 'MENUNGGU_PART' | 'SELESAI' }
+export interface CloseCheckInput { jobs: JobLite[]; partsRecorded: boolean; reviewedBySA: boolean }
+export function canCloseWorkOrder(i: CloseCheckInput): { ok: boolean; reason?: string } {
+  if (i.jobs.length === 0) return { ok: false, reason: 'Work order belum memiliki pekerjaan' };
+  if (i.jobs.some(j => j.status !== 'SELESAI')) return { ok: false, reason: 'Masih ada pekerjaan yang belum selesai' };
+  if (!i.partsRecorded) return { ok: false, reason: 'Pemakaian spare part belum tercatat' };
+  if (!i.reviewedBySA) return { ok: false, reason: 'Belum diperiksa Service Advisor' };
+  return { ok: true };
+}
+
+
+===== FILE: server/domain/test/invoice.test.ts =====
+import { describe, it } from 'node:test';
+import assert from 'node:assert/strict';
+import { computeTotals, nextNumber, findRate, RateNotFoundError, type Rate } from '../src/invoice.ts';
+
+const rates: Rate[] = [
+  { jobTypeId: 'MAINT', brand: 'Jaguar', model: null, rate: 400000, validFrom: '2026-01-01' },
+  { jobTypeId: 'MAINT', brand: 'Jaguar', model: 'XF', rate: 500000, validFrom: '2026-01-01' },
+  { jobTypeId: 'MAINT', brand: 'Jaguar', model: 'XF', rate: 550000, validFrom: '2026-09-01' },
+];
+describe('Invoice dan tarif (FR-PI, BR-08, NFR-15)', () => {
+  it('TC-PI-01: total = jasa + part + biaya lain - diskon', () => {
+    const t = computeTotals({ labor: [500000, 150000], parts: [{ qty: 2, unitPrice: 100000 }], other: [50000], discount: 100000 });
+    assert.deepEqual(t, { labor: 650000, parts: 200000, other: 50000, subtotal: 900000, discount: 100000, total: 800000 });
+  });
+  it('TC-PI-02: diskon melebihi subtotal ditolak', () => {
+    assert.throws(() => computeTotals({ labor: [100], parts: [], other: [], discount: 200 }), RangeError);
+  });
+  it('TC-PI-03: nomor invoice berformat PREFIX-YYYYMMDD-NNN', () => {
+    assert.equal(nextNumber('INV', new Date('2026-10-22T03:00:00Z'), 7), 'INV-20261022-007');
+    assert.throws(() => nextNumber('INV', new Date(), 0), RangeError);
+  });
+  it('TC-PI-04: tarif model spesifik diprioritaskan dan memakai versi terbaru sampai tanggal servis', () => {
+    assert.equal(findRate(rates, 'MAINT', 'Jaguar', 'XF', '2026-10-01'), 550000);
+    assert.equal(findRate(rates, 'MAINT', 'Jaguar', 'XF', '2026-05-01'), 500000);
+    assert.equal(findRate(rates, 'MAINT', 'Jaguar', 'F-Pace', '2026-10-01'), 400000);
+  });
+  it('TC-PI-05: tarif tidak ada memunculkan error', () => {
+    assert.throws(() => findRate(rates, 'OLI_TRANSMISI', 'Jaguar', 'XF', '2026-10-01'), RateNotFoundError);
+  });
+});
+
+
+===== FILE: server/domain/test/kpi.test.ts =====
+import { describe, it } from 'node:test';
+import assert from 'node:assert/strict';
+import { calcProductivity, calcEfficiency, isBonusEligible } from '../src/kpi.ts';
+
+describe('KPI teknisi (FR-KT, BR-06, BR-07)', () => {
+  it('TC-KT-01: 50 jam produktif dari 100 jam kerja = 50%', () => {
+    assert.equal(calcProductivity(50 * 60, 100 * 60), 0.5);
+  });
+  it('TC-KT-02: jam kerja tersedia 0 ditolak', () => {
+    assert.throws(() => calcProductivity(10, 0), RangeError);
+  });
+  it('TC-KT-03: standar 60 menit selesai 30 menit = efisiensi 200%', () => {
+    assert.equal(calcEfficiency(60, 30), 2);
+  });
+  it('TC-KT-04: waktu aktual 0 ditolak', () => {
+    assert.throws(() => calcEfficiency(60, 0), RangeError);
+  });
+  it('TC-KT-05: bonus hanya jika produktivitas di atas ambang 40%', () => {
+    assert.equal(isBonusEligible(0.5), true);
+    assert.equal(isBonusEligible(0.4), false);
+    assert.equal(isBonusEligible(0.35), false);
+  });
+});
+
+
+===== FILE: server/domain/test/misc.test.ts =====
+import { describe, it } from 'node:test';
+import assert from 'node:assert/strict';
+import { isServiceDue } from '../src/reminder.ts';
+import { isUnderWarranty, classifyComplaint } from '../src/warranty.ts';
+import { normalizePlate, findVehicleByPlate } from '../src/plates.ts';
+import { authorize, registerFailedLogin, isLocked } from '../src/auth.ts';
+import { canClockOn, durationMinutes, sumProductiveMinutes } from '../src/clock.ts';
+
+describe('Service reminder (FR-RM-01, BR-10)', () => {
+  it('TC-RM-01: jatuh tempo menurut interval 6 bulan', () => {
+    assert.equal(isServiceDue({ lastServiceDate: '2026-04-01', lastOdometer: 10000, monthInterval: 6, today: '2026-10-22', currentOdometer: 10100 }), true);
+  });
+  it('TC-RM-02: jatuh tempo menurut interval 5.000 km', () => {
+    assert.equal(isServiceDue({ lastServiceDate: '2026-09-01', lastOdometer: 10000, monthInterval: 6, kmInterval: 5000, today: '2026-10-22', currentOdometer: 15500 }), true);
+  });
+  it('TC-RM-03: belum jatuh tempo bila belum melewati keduanya', () => {
+    assert.equal(isServiceDue({ lastServiceDate: '2026-09-01', lastOdometer: 10000, monthInterval: 6, kmInterval: 5000, today: '2026-10-22', currentOdometer: 11000 }), false);
+  });
+});
+describe('Garansi dan komplain (FR-RW, BR-09)', () => {
+  it('TC-RW-01: garansi berlaku sampai batas hari', () => {
+    assert.equal(isUnderWarranty('2026-09-01', 90, '2026-10-22'), true);
+    assert.equal(isUnderWarranty('2026-01-01', 90, '2026-10-22'), false);
+  });
+  it('TC-RW-02: komponen sama garansi; komponen lain part dibayar dan jasa gratis', () => {
+    assert.deepEqual(classifyComplaint('KOMPRESOR', 'KOMPRESOR', true), { type: 'GARANSI', partCharged: false, laborCharged: false });
+    assert.deepEqual(classifyComplaint('KOMPRESOR', 'KONDENSOR', true), { type: 'NON_GARANSI', partCharged: true, laborCharged: false });
+  });
+});
+describe('Nomor polisi (FR-DM-04, FR-DM-05, BR-01)', () => {
+  it('TC-DM-01: normalisasi nomor polisi', () => {
+    assert.equal(normalizePlate('b 128 xl'), 'B128XL');
+    assert.equal(normalizePlate('B-21.AB'), 'B21AB');
+  });
+  it('TC-DM-02: plat lama dan baru menemukan kendaraan yang sama', () => {
+    const v = [{ vehicleId: 'V1', plates: ['B 128 XL', 'B 21 XL'] }, { vehicleId: 'V2', plates: ['D 99 AA'] }];
+    assert.equal(findVehicleByPlate(v, 'b128xl'), 'V1');
+    assert.equal(findVehicleByPlate(v, 'B21 XL'), 'V1');
+  });
+  it('TC-DM-03: plat tidak dikenal mengembalikan undefined', () => {
+    assert.equal(findVehicleByPlate([{ vehicleId: 'V1', plates: ['B1'] }], 'Z9'), undefined);
+  });
+});
+describe('Hak akses dan login (FR-AK, NFR-01, NFR-02)', () => {
+  it('TC-AK-01: Service Advisor boleh mengubah work order, teknisi tidak', () => {
+    assert.equal(authorize('SA', 'work_order', 'write'), true);
+    assert.equal(authorize('TK', 'work_order', 'write', true), false);
+  });
+  it('TC-AK-02: teknisi hanya mengakses clock miliknya sendiri', () => {
+    assert.equal(authorize('TK', 'clock', 'write', true), true);
+    assert.equal(authorize('TK', 'clock', 'write', false), false);
+  });
+  it('TC-AK-03: tarif jasa hanya dikelola Admin dan Pemilik', () => {
+    assert.equal(authorize('PM', 'rate_master', 'write'), true);
+    assert.equal(authorize('AD', 'rate_master', 'write'), true);
+    assert.equal(authorize('SP', 'rate_master', 'write'), false);
+    assert.equal(authorize('SA', 'unknown_resource', 'read'), false);
+  });
+  it('TC-AK-04: akun terkunci pada kegagalan login ke-5', () => {
+    let s = { failed: 0, lockedUntil: null as number | null };
+    for (let i = 0; i < 4; i++) s = registerFailedLogin(s, 1_000);
+    assert.equal(isLocked(s, 1_000), false);
+    s = registerFailedLogin(s, 1_000);
+    assert.equal(isLocked(s, 1_000), true);
+  });
+  it('TC-AK-05: kunci akun berakhir setelah 15 menit', () => {
+    const s = registerFailedLogin({ failed: 4, lockedUntil: null }, 0);
+    assert.equal(isLocked(s, 14 * 60_000), true);
+    assert.equal(isLocked(s, 15 * 60_000), false);
+  });
+});
+describe('Clock on / clock off (FR-PG)', () => {
+  it('TC-PG-01: clock on ditolak bila masih ada pekerjaan berjalan', () => {
+    assert.equal(canClockOn([{ clockOn: '2026-10-22T02:00:00Z', clockOff: null }]), false);
+    assert.equal(canClockOn([{ clockOn: '2026-10-22T02:00:00Z', clockOff: '2026-10-22T03:00:00Z' }]), true);
+  });
+  it('TC-PG-02: durasi dihitung dalam menit, clock off sebelum clock on ditolak', () => {
+    assert.equal(durationMinutes('2026-10-22T02:00:00Z', '2026-10-22T03:15:00Z'), 75);
+    assert.throws(() => durationMinutes('2026-10-22T03:00:00Z', '2026-10-22T02:00:00Z'), RangeError);
+  });
+  it('TC-PG-03: waktu menunggu spare part tidak dihitung produktif', () => {
+    const logs = [
+      { clockOn: '2026-10-22T02:00:00Z', clockOff: '2026-10-22T03:00:00Z' },
+      { clockOn: '2026-10-22T03:00:00Z', clockOff: '2026-10-22T04:00:00Z', waitingPart: true },
+      { clockOn: '2026-10-22T04:00:00Z', clockOff: '2026-10-22T04:30:00Z' },
+    ];
+    assert.equal(sumProductiveMinutes(logs), 90);
+  });
+});
+
+
+===== FILE: server/domain/test/stock.test.ts =====
+import { describe, it } from 'node:test';
+import assert from 'node:assert/strict';
+import { applyStockIn, applyStockOut, applyReturn, isBelowMin, opnameDiff, InsufficientStockError } from '../src/stock.ts';
+
+describe('Stok spare part (FR-SP, BR-04, BR-05, BR-11)', () => {
+  it('TC-SP-01: pengeluaran 3 dari stok 10 menyisakan 7', () => {
+    assert.equal(applyStockOut(10, 3), 7);
+  });
+  it('TC-SP-02: pengeluaran melebihi stok ditolak', () => {
+    assert.throws(() => applyStockOut(2, 3), InsufficientStockError);
+  });
+  it('TC-SP-03: notifikasi saat stok sama dengan atau di bawah minimum 5', () => {
+    assert.equal(isBelowMin(3, 5), true);
+    assert.equal(isBelowMin(5, 5), true);
+    assert.equal(isBelowMin(6, 5), false);
+  });
+  it('TC-SP-04: barang masuk menambah stok, qty 0 atau negatif ditolak', () => {
+    assert.equal(applyStockIn(4, 6), 10);
+    assert.throws(() => applyStockIn(4, 0), RangeError);
+    assert.throws(() => applyStockOut(4, -1), RangeError);
+  });
+  it('TC-SP-05: retur part mengembalikan stok', () => {
+    assert.equal(applyReturn(7, 2), 9);
+  });
+  it('TC-SP-06: stock opname hanya melaporkan part yang selisih', () => {
+    const r = opnameDiff([
+      { partId: 'OLI', systemQty: 10, physicalQty: 8 },
+      { partId: 'FILTER', systemQty: 4, physicalQty: 4 },
+      { partId: 'WIPER', systemQty: 2, physicalQty: 3 },
+    ]);
+    assert.deepEqual(r, [{ partId: 'OLI', diff: -2 }, { partId: 'WIPER', diff: 1 }]);
+  });
+});
+
+
+===== FILE: server/domain/test/workorder.test.ts =====
+import { describe, it } from 'node:test';
+import assert from 'node:assert/strict';
+import { nextStatus, canCloseWorkOrder, InvalidTransitionError } from '../src/workorder.ts';
+
+describe('Work order (FR-PT-06, FR-PI-04, BR-12)', () => {
+  it('TC-WO-01: status mengikuti alur sampai ditutup', () => {
+    let s = nextStatus('MENUNGGU_PENUGASAN', 'ASSIGN');
+    assert.equal(s, 'DITUGASKAN');
+    s = nextStatus(s, 'CLOCK_ON'); assert.equal(s, 'DIKERJAKAN');
+    s = nextStatus(s, 'ALL_JOBS_DONE'); assert.equal(s, 'SELESAI_DIKERJAKAN');
+    s = nextStatus(s, 'REVIEW'); assert.equal(s, 'DIPERIKSA');
+    s = nextStatus(s, 'CLOSE'); assert.equal(s, 'DITUTUP');
+  });
+  it('TC-WO-02: transisi tidak valid ditolak', () => {
+    assert.throws(() => nextStatus('DITUTUP', 'CLOCK_ON'), InvalidTransitionError);
+    assert.throws(() => nextStatus('MENUNGGU_PENUGASAN', 'CLOSE'), InvalidTransitionError);
+  });
+  it('TC-WO-03: pembatalan hanya sebelum pemeriksaan', () => {
+    assert.equal(nextStatus('DIKERJAKAN', 'CANCEL'), 'DIBATALKAN');
+    assert.throws(() => nextStatus('DIPERIKSA', 'CANCEL'), InvalidTransitionError);
+  });
+  it('TC-WO-04: dapat ditutup bila semua pekerjaan selesai, part tercatat, dan sudah diperiksa', () => {
+    const r = canCloseWorkOrder({ jobs: [{ status: 'SELESAI' }, { status: 'SELESAI' }], partsRecorded: true, reviewedBySA: true });
+    assert.deepEqual(r, { ok: true });
+  });
+  it('TC-WO-05: ditolak jika ada pekerjaan belum selesai atau part belum tercatat', () => {
+    const a = canCloseWorkOrder({ jobs: [{ status: 'SELESAI' }, { status: 'BERJALAN' }], partsRecorded: true, reviewedBySA: true });
+    assert.equal(a.ok, false);
+    const b = canCloseWorkOrder({ jobs: [{ status: 'SELESAI' }], partsRecorded: false, reviewedBySA: true });
+    assert.equal(b.ok, false);
+    assert.match(b.reason ?? '', /spare part/);
+  });
+});
