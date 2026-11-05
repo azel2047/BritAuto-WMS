@@ -1,328 +1,410 @@
-import React, { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
-import { useQuery, useMutation } from '@tanstack/react-query';
+import React, { useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
 import {
-  ClipboardList,
+  Plus,
+  ChevronRight,
   CheckCircle2,
-  Wallet,
-  AlertTriangle,
-  BellRing,
-  Wrench,
-  PlusCircle,
-  Search,
-  ArrowRight,
-  Cpu,
-  Smartphone,
+  UserCheck,
+  ClipboardCheck,
 } from 'lucide-react';
 import { apiFetch } from '../lib/api';
 import { useAuth } from '../lib/auth';
-import { formatRupiah, formatDateTimeId, ROLE_LABELS } from '../lib/format';
-import { StatusBadge } from '../components/domain/StatusBadge';
-import { Modal } from '../components/ui/Modal';
+import { PageLayout } from '../components/layout/PageLayout';
+import { StatusBadge, PlateChip } from '../components/domain/StatusBadge';
+import { TableSkeleton, ErrorCard } from '../components/ui/Modal';
+import { OwnerMobileHomePage } from './owner/MobileHome';
+import { TechnicianJobsPage } from './technician/AssignmentAndClock';
 
+/**
+ * BERANDA = daftar tugas, bukan dekorasi (LANGKAH 3):
+ * - SA / AD: tombol utama "+ Terima Kendaraan"; di bawahnya DAFTAR berisi
+ *   "Perlu diperiksa (n)", "Siap diserahkan (n)", "Jatuh tempo servis (n)" —
+ *   tiap baris bisa diklik ke daftar terfilter. Hanya tampilkan baris yang n > 0, sisanya "Semua beres".
+ * - Kepala Regu (KR): daftar WO yang belum ditugaskan, tiap baris tombol "Tugaskan".
+ * - Teknisi (TK): langsung merender kartu pekerjaan (MULAI/SELESAI 64px).
+ * - Pemilik (PM): langsung merender Ringkasan (3 angka besar + daftar Perlu perhatian maks 5 baris).
+ * - Spare Part (SP): tombol utama "Opname Stok", daftar stok menipis & WO aktif.
+ */
 export const DashboardPage: React.FC = () => {
-  const { user, showToast } = useAuth();
+  const { user } = useAuth();
   const navigate = useNavigate();
-  const [plateQuery, setPlateQuery] = useState('');
-  const [aiModalOpen, setAiModalOpen] = useState(false);
-  const [aiQuery, setAiQuery] = useState(
-    'Analisis gejala getaran transmisi ZF 8HP pada Rolls-Royce Ghost saat perpindahan gigi 2 ke 3 beserta langkah pemeriksaan tekanan mechatronic.'
-  );
-  const [aiAnswer, setAiAnswer] = useState('');
 
-  const { data: summary, isLoading } = useQuery<any>({
+  const {
+    data: summary,
+    isLoading: summaryLoading,
+    isError: summaryError,
+    refetch: refetchSummary,
+  } = useQuery<any>({
     queryKey: ['dashboard'],
     queryFn: () => apiFetch('/dashboard/summary'),
+    enabled: user?.role !== 'TK' && user?.role !== 'PM',
   });
 
-  const aiMutation = useMutation({
-    mutationFn: (query: string) =>
-      apiFetch<{ answer: string }>('/ai/analyze', {
-        method: 'POST',
-        body: JSON.stringify({ query }),
-      }),
-    onSuccess: data => setAiAnswer(data.answer),
-    onError: (err: any) => showToast(err.message, 'error'),
+  const { data: allWorkOrders = [], isLoading: woLoading } = useQuery<any[]>({
+    queryKey: ['work-orders', 'ALL'],
+    queryFn: () => apiFetch('/work-orders?status=ALL&q='),
+    enabled: user?.role !== 'TK' && user?.role !== 'PM',
   });
 
-  const handleQuickPlateSearch = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!plateQuery.trim()) return;
-    navigate(`/vehicles?q=${encodeURIComponent(plateQuery.trim())}`);
-  };
+  const activeWorkOrders: any[] = useMemo(() => {
+    const safeAll = Array.isArray(allWorkOrders) ? allWorkOrders : [];
+    const raw = safeAll.filter(w => w.status !== 'DITUTUP' && w.status !== 'DIBATALKAN');
+    if (raw.length > 0) return raw;
+    return Array.isArray(summary?.activeWorkOrders) ? summary.activeWorkOrders : [];
+  }, [allWorkOrders, summary]);
 
-  if (isLoading || !summary) {
+  if (user?.role === 'TK') {
+    return <TechnicianJobsPage />;
+  }
+
+  if (user?.role === 'PM') {
+    return <OwnerMobileHomePage />;
+  }
+
+  if (summaryLoading || woLoading) {
     return (
-      <div className="space-y-4">
-        <div className="h-8 w-64 bg-[var(--navy-100)] rounded animate-pulse" />
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          {[1, 2, 3, 4].map(i => (
-            <div key={i} className="h-28 bg-[var(--surface)] border border-[var(--border)] rounded-[10px] animate-pulse" />
-          ))}
-        </div>
-      </div>
+      <PageLayout title="Beranda">
+        <TableSkeleton rows={5} />
+      </PageLayout>
     );
   }
 
+  if (summaryError || !summary) {
+    return (
+      <PageLayout title="Beranda">
+        <ErrorCard onRetry={() => refetchSummary()} />
+      </PageLayout>
+    );
+  }
+
+  // Kepala Regu (KR): daftar WO yang belum ditugaskan, tiap baris tombol "Tugaskan"
+  if (user?.role === 'KR') {
+    const unassignedWos = activeWorkOrders.filter(
+      w => w.status === 'MENUNGGU_PENUGASAN' || !w.technician_names
+    );
+    const otherActiveWos = activeWorkOrders.filter(
+      w => w.status !== 'MENUNGGU_PENUGASAN' && Boolean(w.technician_names)
+    );
+
+    return (
+      <PageLayout
+        title="Perlu Ditugaskan"
+        primaryAction={
+          <button type="button" onClick={() => navigate('/assignments')} className="wc-btn-primary">
+            <UserCheck className="w-5 h-5 stroke-[1.5]" aria-hidden="true" />
+            <span>Papan Tugaskan</span>
+          </button>
+        }
+      >
+        <div className="space-y-6">
+          <section className="wc-card p-0 overflow-hidden">
+            <div className="px-6 py-4 border-b border-[var(--border)]">
+              <h2 className="text-h3">Belum Ditugaskan ({unassignedWos.length})</h2>
+            </div>
+            {unassignedWos.length === 0 ? (
+              <div className="p-6 flex items-center gap-2 text-[14px] leading-5 text-[var(--success)]">
+                <CheckCircle2 className="w-5 h-5 stroke-[1.5]" />
+                <span>Semua beres</span>
+              </div>
+            ) : (
+              <div className="divide-y divide-[var(--border)]">
+                {unassignedWos.map((wo: any) => (
+                  <div
+                    key={wo.id}
+                    className="px-6 py-3 min-h-[56px] flex flex-wrap items-center justify-between gap-4 hover:bg-[var(--bg)]"
+                  >
+                    <div className="flex items-center gap-3 min-w-0">
+                      <PlateChip plate={wo.plate_current} />
+                      <div className="min-w-0">
+                        <div className="text-[14px] leading-5 font-semibold text-[var(--text)] truncate">
+                          {wo.brand} {wo.model} ({wo.year})
+                        </div>
+                        <div className="font-mono text-[12px] leading-4 text-[var(--text-muted)]">
+                          {wo.wo_number} · {wo.total_jobs || 1} pekerjaan
+                        </div>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => navigate(`/work-orders/${wo.id}`)}
+                      className="wc-btn-primary"
+                    >
+                      <span>Tugaskan</span>
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+
+          {otherActiveWos.length > 0 && (
+            <section className="wc-card p-0 overflow-hidden">
+              <div className="px-6 py-4 border-b border-[var(--border)]">
+                <h2 className="text-h3">Sedang Berjalan ({otherActiveWos.length})</h2>
+              </div>
+              <div className="divide-y divide-[var(--border)]">
+                {otherActiveWos.map((wo: any) => (
+                  <div
+                    key={wo.id}
+                    onClick={() => navigate(`/work-orders/${wo.id}`)}
+                    className="px-6 py-3 min-h-[48px] flex flex-wrap items-center justify-between gap-4 hover:bg-[var(--bg)] cursor-pointer"
+                  >
+                    <div className="flex items-center gap-3 min-w-0">
+                      <PlateChip plate={wo.plate_current} />
+                      <span className="text-[14px] leading-5 font-medium text-[var(--text)]">
+                        {wo.brand} {wo.model}
+                      </span>
+                      <span className="text-[12px] leading-4 text-[var(--text-muted)]">
+                        · {wo.technician_names}
+                      </span>
+                    </div>
+                    <StatusBadge status={wo.status} workOrder={wo} kind="wo" />
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
+        </div>
+      </PageLayout>
+    );
+  }
+
+  // Spare Part (SP)
+  if (user?.role === 'SP') {
+    const lowStockCount = Number(summary.lowStockCount || 0);
+    const pendingOpnames = Number(summary.pendingOpnames || 0);
+    const spTasks = [
+      { label: 'Stok menipis', count: lowStockCount, to: '/parts' },
+      { label: 'Work Order aktif', count: activeWorkOrders.length, to: '/work-orders' },
+      { label: 'Opname menunggu persetujuan', count: pendingOpnames, to: '/opnames' },
+    ].filter(t => t.count > 0);
+
+    return (
+      <PageLayout
+        title="Beranda"
+        primaryAction={
+          <button type="button" onClick={() => navigate('/opnames')} className="wc-btn-primary">
+            <ClipboardCheck className="w-5 h-5 stroke-[1.5]" aria-hidden="true" />
+            <span>Opname Stok</span>
+          </button>
+        }
+      >
+        <div className="space-y-6">
+          <section className="wc-card p-0 overflow-hidden">
+            <div className="px-6 py-4 border-b border-[var(--border)]">
+              <h2 className="text-h3">Daftar Tugas</h2>
+            </div>
+            {spTasks.length === 0 ? (
+              <div className="p-6 flex items-center gap-2 text-[14px] leading-5 text-[var(--success)]">
+                <CheckCircle2 className="w-5 h-5 stroke-[1.5]" />
+                <span>Semua beres</span>
+              </div>
+            ) : (
+              <div className="divide-y divide-[var(--border)]">
+                {spTasks.map(task => (
+                  <button
+                    key={task.label}
+                    type="button"
+                    onClick={() => navigate(task.to)}
+                    className="w-full min-h-[48px] px-6 py-3 flex items-center justify-between gap-4 hover:bg-[var(--bg)] text-left cursor-pointer"
+                  >
+                    <span className="text-[14px] leading-5 font-medium text-[var(--text)]">
+                      {task.label} ({task.count})
+                    </span>
+                    <ChevronRight className="w-4 h-4 stroke-[1.5] text-[var(--text-muted)]" />
+                  </button>
+                ))}
+              </div>
+            )}
+          </section>
+
+          <section className="wc-card p-0 overflow-hidden">
+            <div className="px-6 py-4 border-b border-[var(--border)]">
+              <h2 className="text-h3">Keluarkan Part ke Work Order</h2>
+            </div>
+            <div className="divide-y divide-[var(--border)]">
+              {activeWorkOrders.map((wo: any) => (
+                <div
+                  key={wo.id}
+                  onClick={() => navigate(`/work-orders/${wo.id}`)}
+                  className="px-6 py-3 min-h-[48px] flex items-center justify-between gap-4 hover:bg-[var(--bg)] cursor-pointer"
+                >
+                  <div className="flex items-center gap-3 min-w-0">
+                    <PlateChip plate={wo.plate_current} />
+                    <span className="text-[14px] leading-5 font-medium text-[var(--text)] truncate">
+                      {wo.brand} {wo.model}
+                    </span>
+                    <span className="font-mono text-[12px] leading-4 text-[var(--text-muted)] hidden sm:inline">
+                      {wo.wo_number}
+                    </span>
+                  </div>
+                  <StatusBadge status={wo.status} workOrder={wo} kind="wo" />
+                </div>
+              ))}
+            </div>
+          </section>
+        </div>
+      </PageLayout>
+    );
+  }
+
+  // Default: SA & Admin
+  // Daftar berisi "Perlu diperiksa (n)", "Siap diserahkan (n)", "Jatuh tempo servis (n)", "Perlu ditugaskan (n)"
+  // Hanya tampilkan baris yang n > 0, sisanya "Semua beres".
+  const perluDiperiksaCount = activeWorkOrders.filter(w => w.status === 'SELESAI_DIKERJAKAN').length;
+  const siapDiserahkanCount = activeWorkOrders.filter(w => w.status === 'DIPERIKSA').length;
+  const perluDitugaskanCount = activeWorkOrders.filter(w => w.status === 'MENUNGGU_PENUGASAN').length;
+  const jatuhTempoCount = Number(summary.dueRemindersCount || 0);
+
+  const taskRows = [
+    {
+      label: 'Perlu diperiksa',
+      count: perluDiperiksaCount,
+      to: '/work-orders?status=SELESAI_DIKERJAKAN',
+    },
+    {
+      label: 'Siap diserahkan',
+      count: siapDiserahkanCount,
+      to: '/work-orders?status=DIPERIKSA',
+    },
+    {
+      label: 'Jatuh tempo servis',
+      count: jatuhTempoCount,
+      to: '/reminders',
+    },
+    {
+      label: 'Perlu ditugaskan',
+      count: perluDitugaskanCount,
+      to: '/work-orders?status=MENUNGGU_PENUGASAN',
+    },
+  ].filter(row => row.count > 0);
+
   return (
-    <div className="space-y-6">
-      {/* Header Banner */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-[var(--surface)] p-5 rounded-[10px] border border-[var(--border)]">
-        <div>
-          <h1 className="text-xl sm:text-2xl font-bold text-[var(--text)]">
-            Dashboard {ROLE_LABELS[user!.role]}
-          </h1>
-          <p className="text-xs sm:text-sm text-[var(--text-muted)] mt-0.5">
-            Bengkel Spesialis Jaguar · Land Rover · Bentley · Rolls-Royce
-          </p>
-        </div>
+    <PageLayout
+      title="Beranda"
+      primaryAction={
+        <button type="button" onClick={() => navigate('/work-orders/new')} className="wc-btn-primary">
+          <Plus className="w-5 h-5 stroke-[1.5]" aria-hidden="true" />
+          <span>Terima Kendaraan</span>
+        </button>
+      }
+    >
+      <div className="space-y-6">
+        {/* Daftar Tugas Hari Ini */}
+        <section className="wc-card p-0 overflow-hidden" aria-label="Daftar Tugas">
+          <div className="px-6 py-4 border-b border-[var(--border)]">
+            <h2 className="text-h3">Perlu Tindakan</h2>
+          </div>
 
-        <div className="flex flex-wrap items-center gap-2.5">
-          {user?.role === 'PM' && (
-            <Link
-              to="/owner/mobile"
-              className="inline-flex items-center gap-2 px-3.5 py-2 rounded-[6px] border border-[#1f3a5f] text-[#1f3a5f] dark:border-white/30 dark:text-white text-xs font-semibold hover:bg-[var(--navy-50)] transition-colors whitespace-nowrap"
-            >
-              <Smartphone className="w-4 h-4" />
-              <span>Tampilan Mobile Pemilik</span>
-            </Link>
+          {taskRows.length === 0 ? (
+            <div className="p-6 flex items-center gap-2 text-[14px] leading-5 text-[var(--success)]">
+              <CheckCircle2 className="w-5 h-5 stroke-[1.5]" aria-hidden="true" />
+              <span>Semua beres</span>
+            </div>
+          ) : (
+            <div className="divide-y divide-[var(--border)]">
+              {taskRows.map(row => (
+                <button
+                  key={row.label}
+                  type="button"
+                  onClick={() => navigate(row.to)}
+                  className="w-full min-h-[48px] px-6 py-3 flex items-center justify-between gap-4 hover:bg-[var(--bg)] text-left transition-colors cursor-pointer"
+                >
+                  <span className="text-[14px] leading-5 font-medium text-[var(--text)]">
+                    {row.label}{' '}
+                    <span className="font-mono font-semibold text-[var(--primary)] tabular-nums">
+                      ({row.count})
+                    </span>
+                  </span>
+                  <ChevronRight className="w-4 h-4 stroke-[1.5] text-[var(--text-muted)] shrink-0" />
+                </button>
+              ))}
+            </div>
           )}
-          <button
-            onClick={() => setAiModalOpen(true)}
-            className="inline-flex items-center gap-2 px-3.5 py-2 rounded-[6px] border border-[var(--border)] bg-[var(--navy-50)] text-[var(--text)] text-xs font-semibold hover:bg-[var(--navy-100)] transition-colors whitespace-nowrap"
-          >
-            <Cpu className="w-4 h-4 text-[#1f3a5f]" />
-            <span>Konsultasi Teknis Mendalam</span>
-          </button>
-          {(user?.role === 'SA' || user?.role === 'AD') && (
-            <Link
-              to="/work-orders/new"
-              className="inline-flex items-center gap-2 px-4 py-2 rounded-[6px] bg-[#1f3a5f] text-white text-xs sm:text-sm font-semibold hover:bg-[#2c4f7c] transition-colors whitespace-nowrap"
+        </section>
+
+        {/* Daftar Work Order Aktif */}
+        <section className="wc-card p-0 overflow-hidden" aria-label="Work Order Aktif">
+          <div className="px-6 py-4 border-b border-[var(--border)] flex items-center justify-between">
+            <h2 className="text-h3">Work Order Aktif ({activeWorkOrders.length})</h2>
+            <button
+              type="button"
+              onClick={() => navigate('/work-orders')}
+              className="text-[14px] leading-5 font-medium text-[var(--primary)] hover:underline cursor-pointer"
             >
-              <PlusCircle className="w-4 h-4" />
-              <span>+ Terima Kendaraan</span>
-            </Link>
-          )}
-        </div>
-      </div>
+              Semua Work Order
+            </button>
+          </div>
 
-      {/* Quick Vehicle / Plate Search Bar (BR-01) */}
-      {(user?.role === 'SA' || user?.role === 'KR' || user?.role === 'AD' || user?.role === 'PM') && (
-        <form
-          onSubmit={handleQuickPlateSearch}
-          className="bg-[var(--surface)] p-4 rounded-[10px] border border-[var(--border)] flex flex-col sm:flex-row items-stretch sm:items-center gap-3"
-        >
-          <div className="flex-1 relative">
-            <Search className="w-4 h-4 text-[var(--text-muted)] absolute left-3.5 top-1/2 -translate-y-1/2" />
-            <input
-              type="text"
-              value={plateQuery}
-              onChange={e => setPlateQuery(e.target.value)}
-              placeholder="Cari cepat nomor polisi lama/baru (mis. B 128 XL atau B 1234 JAG), nama pelanggan, atau telepon..."
-              className="w-full h-10 pl-10 pr-3 rounded-[6px] border border-[var(--border)] bg-[var(--surface)] text-sm focus:outline-none focus:ring-2 focus:ring-[#2c4f7c]"
-            />
-          </div>
-          <button
-            type="submit"
-            className="h-10 px-5 rounded-[6px] bg-[#1f3a5f] text-white text-sm font-medium hover:bg-[#2c4f7c] transition-colors whitespace-nowrap shrink-0"
-          >
-            Cari Riwayat Kendaraan
-          </button>
-        </form>
-      )}
-
-      {/* 4 KPI Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="bg-[var(--surface)] p-5 rounded-[10px] border border-[var(--border)]">
-          <div className="flex items-center justify-between text-xs font-medium text-[var(--text-muted)]">
-            <span>WORK ORDER AKTIF</span>
-            <ClipboardList className="w-4 h-4 text-[#1f3a5f]" />
-          </div>
-          <div className="mt-2 text-3xl font-bold text-[var(--text)] tabular-nums">{summary.activeWoCount}</div>
-          <div className="mt-1 text-xs text-[var(--text-muted)]">
-            {summary.doneTodayCount} kendaraan selesai hari ini
-          </div>
-        </div>
-
-        <div className="bg-[var(--surface)] p-5 rounded-[10px] border border-[var(--border)]">
-          <div className="flex items-center justify-between text-xs font-medium text-[var(--text-muted)]">
-            <span>PENDAPATAN BULAN INI</span>
-            <Wallet className="w-4 h-4 text-[#2e8b57]" />
-          </div>
-          <div className="mt-2 text-2xl sm:text-3xl font-bold text-[var(--text)] tabular-nums truncate">
-            {formatRupiah(summary.revenueMonth)}
-          </div>
-          <div className="mt-1 text-xs text-[var(--text-muted)]">Periode {summary.currentPeriod}</div>
-        </div>
-
-        <div className="bg-[var(--surface)] p-5 rounded-[10px] border border-[var(--border)]">
-          <div className="flex items-center justify-between text-xs font-medium text-[var(--text-muted)]">
-            <span>STOK DI BAWAH MINIMUM</span>
-            <AlertTriangle className="w-4 h-4 text-[#b36b00]" />
-          </div>
-          <div className="mt-2 text-3xl font-bold text-[#b36b00] tabular-nums">{summary.lowStockCount}</div>
-          <div className="mt-1 text-xs text-[var(--text-muted)]">
-            {summary.pendingOpnames > 0 ? `${summary.pendingOpnames} opname menunggu setuju` : 'Perlu restock segera'}
-          </div>
-        </div>
-
-        <div className="bg-[var(--surface)] p-5 rounded-[10px] border border-[var(--border)]">
-          <div className="flex items-center justify-between text-xs font-medium text-[var(--text-muted)]">
-            <span>REMINDER JATUH TEMPO</span>
-            <BellRing className="w-4 h-4 text-[#1f6fb2]" />
-          </div>
-          <div className="mt-2 text-3xl font-bold text-[var(--text)] tabular-nums">{summary.dueRemindersCount}</div>
-          <div className="mt-1 text-xs text-[var(--text-muted)]">Menunggu follow-up Service Advisor</div>
-        </div>
-      </div>
-
-      {/* Main 2-column Grid: Active Work Orders & Technician / Stock Status */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Left 2 cols: Active Work Orders */}
-        <div className="lg:col-span-2 bg-[var(--surface)] rounded-[10px] border border-[var(--border)] overflow-hidden">
-          <div className="px-5 py-4 border-b border-[var(--border)] flex items-center justify-between">
-            <h2 className="text-base font-semibold">Work Order Sedang Berjalan</h2>
-            <Link to="/work-orders" className="text-xs font-medium text-[#1f6fb2] hover:underline flex items-center gap-1">
-              <span>Lihat Semua</span>
-              <ArrowRight className="w-3.5 h-3.5" />
-            </Link>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse">
+          {/* Desktop Table (maks 5 kolom) */}
+          <div className="hidden md:block overflow-x-auto">
+            <table className="wc-table">
               <thead>
-                <tr className="bg-[var(--navy-50)] text-[var(--text-muted)] text-xs uppercase">
-                  <th scope="col" className="py-3 px-4 font-semibold">No. WO</th>
-                  <th scope="col" className="py-3 px-4 font-semibold">Kendaraan</th>
-                  <th scope="col" className="py-3 px-4 font-semibold">Pelanggan</th>
-                  <th scope="col" className="py-3 px-4 font-semibold">Status</th>
-                  <th scope="col" className="py-3 px-4 font-semibold text-right">Estimasi</th>
+                <tr>
+                  <th>Kendaraan</th>
+                  <th>No. WO</th>
+                  <th>Pelanggan</th>
+                  <th>Teknisi</th>
+                  <th>Status</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-[var(--border)] text-sm">
-                {summary.activeWorkOrders.map((wo: any) => (
+              <tbody>
+                {activeWorkOrders.map((wo: any) => (
                   <tr
                     key={wo.id}
                     onClick={() => navigate(`/work-orders/${wo.id}`)}
-                    className="hover:bg-[var(--navy-50)] cursor-pointer transition-colors"
+                    className="cursor-pointer"
                   >
-                    <td className="py-3 px-4 font-mono text-xs font-semibold text-[#1f3a5f] dark:text-[#c9a227] whitespace-nowrap">
-                      {wo.wo_number}
-                    </td>
-                    <td className="py-3 px-4">
-                      <div className="font-semibold text-[var(--text)]">{wo.plate_current}</div>
-                      <div className="text-xs text-[var(--text-muted)]">
-                        {wo.brand} {wo.model}
+                    <td>
+                      <div className="flex items-center gap-2.5">
+                        <PlateChip plate={wo.plate_current} />
+                        <span className="text-[14px] leading-5 text-[var(--text-muted)]">
+                          {wo.brand} {wo.model}
+                        </span>
                       </div>
                     </td>
-                    <td className="py-3 px-4 text-xs sm:text-sm">{wo.customer_name}</td>
-                    <td className="py-3 px-4">
-                      <StatusBadge status={wo.status} kind="wo" />
+                    <td className="font-mono text-[14px] leading-5 text-[var(--text)] tabular-nums">
+                      {wo.wo_number}
                     </td>
-                    <td className="py-3 px-4 text-right font-mono tabular-nums font-medium whitespace-nowrap">
-                      {formatRupiah(wo.estimate_total)}
+                    <td className="text-[14px] leading-5 text-[var(--text)]">{wo.customer_name}</td>
+                    <td className="text-[14px] leading-5 text-[var(--text-muted)]">
+                      {wo.technician_names || 'Belum ada'}
+                    </td>
+                    <td>
+                      <StatusBadge status={wo.status} workOrder={wo} kind="wo" />
                     </td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
-        </div>
 
-        {/* Right col: Active Technicians & Low Stock */}
-        <div className="space-y-6">
-          <div className="bg-[var(--surface)] rounded-[10px] border border-[var(--border)] overflow-hidden">
-            <div className="px-5 py-3.5 border-b border-[var(--border)] flex items-center justify-between">
-              <h2 className="text-sm font-semibold">Status Teknisi Bengkel</h2>
-              <Link to="/my-jobs" className="text-xs text-[#1f6fb2] hover:underline">
-                Job Card
-              </Link>
-            </div>
-            <div className="divide-y divide-[var(--border)]">
-              {summary.activeTechnicians.map((t: any) => (
-                <div key={t.id} className="px-4 py-3 flex items-center justify-between gap-2 text-sm">
-                  <div>
-                    <div className="font-medium text-[var(--text)]">{t.name}</div>
-                    <div className="text-xs text-[var(--text-muted)]">
-                      {t.current_job ? `${t.current_job} (${t.current_plate})` : 'Siap menerima tugas'}
-                    </div>
-                  </div>
-                  {t.current_job ? (
-                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-[#e2eefa] text-[#1f6fb2] text-xs font-medium whitespace-nowrap">
-                      <Wrench className="w-3 h-3" />
-                      Aktif
-                    </span>
-                  ) : (
-                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-[#e4f4ec] text-[#2e8b57] text-xs font-medium whitespace-nowrap">
-                      <CheckCircle2 className="w-3 h-3" />
-                      Tersedia
-                    </span>
-                  )}
+          {/* Mobile 2-Row Cards */}
+          <div className="md:hidden divide-y divide-[var(--border)]">
+            {activeWorkOrders.map((wo: any) => (
+              <div
+                key={wo.id}
+                onClick={() => navigate(`/work-orders/${wo.id}`)}
+                className="p-4 space-y-2 hover:bg-[var(--bg)] cursor-pointer"
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <PlateChip plate={wo.plate_current} />
+                  <StatusBadge status={wo.status} workOrder={wo} kind="wo" />
                 </div>
-              ))}
-            </div>
-          </div>
-
-          <div className="bg-[var(--surface)] rounded-[10px] border border-[var(--border)] overflow-hidden">
-            <div className="px-5 py-3.5 border-b border-[var(--border)] flex items-center justify-between">
-              <h2 className="text-sm font-semibold">Peringatan Stok Minimum (BR-05)</h2>
-              <Link to="/parts" className="text-xs text-[#1f6fb2] hover:underline">
-                Kelola Stok
-              </Link>
-            </div>
-            <div className="divide-y divide-[var(--border)]">
-              {summary.lowStockParts.slice(0, 5).map((p: any) => (
-                <div key={p.id} className="px-4 py-3 flex items-center justify-between gap-3 text-xs">
-                  <div className="min-w-0">
-                    <div className="font-medium text-[var(--text)] truncate">{p.name}</div>
-                    <div className="text-[var(--text-muted)] font-mono">{p.code}</div>
-                  </div>
-                  <div className="text-right shrink-0 tabular-nums">
-                    <span className="px-2 py-0.5 rounded bg-[#fdf1dc] text-[#b36b00] font-semibold">
-                      Sisa {p.stock_qty} {p.unit}
-                    </span>
-                    <div className="text-[11px] text-[var(--text-muted)] mt-0.5">Min: {p.min_stock}</div>
-                  </div>
+                <div className="flex items-center justify-between gap-2 text-[14px] leading-5">
+                  <span className="font-medium text-[var(--text)] truncate">
+                    {wo.brand} {wo.model} · {wo.customer_name}
+                  </span>
+                  <span className="font-mono text-[12px] leading-4 text-[var(--text-muted)] shrink-0">
+                    {wo.wo_number}
+                  </span>
                 </div>
-              ))}
-            </div>
+              </div>
+            ))}
           </div>
-        </div>
+        </section>
       </div>
-
-      {/* Deep Technical Consultation Modal (gemini-4-argon ThinkingLevel.HIGH) */}
-      <Modal
-        open={aiModalOpen}
-        onClose={() => setAiModalOpen(false)}
-        title="Analisis Teknis & Operasional Mendalam"
-        maxWidth="max-w-2xl"
-      >
-        <div className="space-y-4">
-          <p className="text-xs text-[var(--text-muted)]">
-            Gunakan penalaran teknis mendalam untuk menganalisis gejala kerusakan spesifik mobil Inggris (Jaguar, Land Rover, Bentley, Rolls-Royce) atau evaluasi operasional bengkel.
-          </p>
-          <textarea
-            rows={3}
-            value={aiQuery}
-            onChange={e => setAiQuery(e.target.value)}
-            className="w-full p-3 rounded-[6px] border border-[var(--border)] bg-[var(--surface)] text-sm focus:outline-none focus:ring-2 focus:ring-[#2c4f7c]"
-            placeholder="Masukkan pertanyaan teknis atau skenario analisis..."
-          />
-          <div className="flex justify-end">
-            <button
-              onClick={() => aiMutation.mutate(aiQuery)}
-              disabled={aiMutation.isPending || !aiQuery.trim()}
-              className="px-4 py-2 rounded-[6px] bg-[#1f3a5f] text-white text-sm font-medium hover:bg-[#2c4f7c] disabled:opacity-50"
-            >
-              {aiMutation.isPending ? 'Menganalisis secara mendalam...' : 'Jalankan Analisis'}
-            </button>
-          </div>
-          {aiAnswer && (
-            <div className="p-4 rounded-[8px] bg-[var(--navy-50)] border border-[var(--border)] text-xs sm:text-sm whitespace-pre-wrap leading-relaxed">
-              {aiAnswer}
-            </div>
-          )}
-        </div>
-      </Modal>
-    </div>
+    </PageLayout>
   );
 };

@@ -2,86 +2,217 @@ import React, { useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
-  FileText,
   Printer,
   CreditCard,
-  ShieldAlert,
   Plus,
   Wrench,
-  ArrowLeft,
-  ShieldCheck,
+  FileText,
+  ShieldAlert,
+  ChevronRight,
+  Search,
 } from 'lucide-react';
 import { apiFetch } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
 import { formatRupiah, formatDateId, formatDateTimeId } from '../../lib/format';
-import { StatusBadge } from '../../components/domain/StatusBadge';
-import { Modal } from '../../components/ui/Modal';
+import { StatusBadge, PlateChip } from '../../components/domain/StatusBadge';
+import { PageLayout } from '../../components/layout/PageLayout';
+import {
+  Modal,
+  EmptyState,
+  TableSkeleton,
+  ErrorCard,
+  PaginationBar,
+  FilterChip,
+} from '../../components/ui/Modal';
 import { BritLogo } from '../../components/domain/BritLogo';
 
 export const InvoicesListPage: React.FC = () => {
   const navigate = useNavigate();
-  const { data: invoices = [], isLoading } = useQuery<any[]>({
+  const [q, setQ] = useState('');
+  const [statusFilter, setStatusFilter] = useState<'ALL' | 'BELUM_BAYAR' | 'LUNAS'>('ALL');
+  const [page, setPage] = useState(1);
+
+  const {
+    data: invoices = [],
+    isLoading,
+    isError,
+    refetch,
+  } = useQuery<any[]>({
     queryKey: ['invoices'],
     queryFn: () => apiFetch('/invoices'),
   });
 
-  return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-xl sm:text-2xl font-bold">Daftar Invoice & Pembayaran</h1>
-        <p className="text-xs sm:text-sm text-[var(--text-muted)]">
-          Invoice yang telah terbit menggunakan snapshot harga saat transaksi dan bersifat permanen (tidak dapat dihapus).
-        </p>
-      </div>
+  const filtered = invoices.filter((inv: any) => {
+    if (statusFilter === 'LUNAS' && inv.status !== 'LUNAS') return false;
+    if (statusFilter === 'BELUM_BAYAR' && inv.status === 'LUNAS') return false;
+    if (q.trim()) {
+      const needle = q.toLowerCase();
+      return (
+        String(inv.plate_current || '').toLowerCase().includes(needle) ||
+        String(inv.invoice_number || '').toLowerCase().includes(needle) ||
+        String(inv.customer_name || '').toLowerCase().includes(needle)
+      );
+    }
+    return true;
+  });
 
+  const pageSize = 20;
+  const paged = filtered.slice((page - 1) * pageSize, page * pageSize);
+
+  return (
+    <PageLayout
+      title="Invoice"
+      toolbar={
+        <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+          <div className="relative flex-1 max-w-sm">
+            <Search className="w-4 h-4 stroke-[1.5] text-[var(--text-muted)] absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+            <input
+              type="search"
+              value={q}
+              onChange={e => {
+                setQ(e.target.value);
+                setPage(1);
+              }}
+              placeholder="Cari plat, nomor invoice, pelanggan..."
+              className="w-full wc-input pl-9"
+            />
+          </div>
+          <div className="flex items-center gap-1.5">
+            <FilterChip
+              active={statusFilter === 'ALL'}
+              onClick={() => {
+                setStatusFilter('ALL');
+                setPage(1);
+              }}
+              count={invoices.length}
+            >
+              Semua
+            </FilterChip>
+            <FilterChip
+              active={statusFilter === 'BELUM_BAYAR'}
+              onClick={() => {
+                setStatusFilter('BELUM_BAYAR');
+                setPage(1);
+              }}
+              count={invoices.filter(i => i.status !== 'LUNAS').length}
+            >
+              Belum bayar
+            </FilterChip>
+            <FilterChip
+              active={statusFilter === 'LUNAS'}
+              onClick={() => {
+                setStatusFilter('LUNAS');
+                setPage(1);
+              }}
+              count={invoices.filter(i => i.status === 'LUNAS').length}
+            >
+              Lunas
+            </FilterChip>
+          </div>
+        </div>
+      }
+    >
       {isLoading ? (
-        <div className="h-48 bg-[var(--surface)] rounded-[10px] border border-[var(--border)] animate-pulse" />
+        <TableSkeleton rows={5} />
+      ) : isError ? (
+        <ErrorCard onRetry={() => refetch()} />
+      ) : filtered.length === 0 ? (
+        <EmptyState
+          icon={FileText}
+          message="Tidak ada invoice yang cocok dengan pencarian."
+          actionLabel="Tampilkan Semua"
+          onAction={() => {
+            setQ('');
+            setStatusFilter('ALL');
+          }}
+        />
       ) : (
-        <div className="bg-[var(--surface)] rounded-[10px] border border-[var(--border)] overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse">
+        <div className="wc-card p-0 overflow-hidden">
+          {/* Desktop Table: maks 6 kolom */}
+          <div className="hidden md:block overflow-x-auto">
+            <table className="wc-table">
               <thead>
-                <tr className="bg-[var(--navy-50)] text-[var(--text-muted)] text-xs uppercase">
-                  <th className="py-3 px-4 font-semibold">No. Invoice</th>
-                  <th className="py-3 px-4 font-semibold">No. WO</th>
-                  <th className="py-3 px-4 font-semibold">Tanggal</th>
-                  <th className="py-3 px-4 font-semibold">Kendaraan & Pelanggan</th>
-                  <th className="py-3 px-4 font-semibold text-right">Total Tagihan</th>
-                  <th className="py-3 px-4 font-semibold">Status</th>
+                <tr>
+                  <th>Kendaraan</th>
+                  <th>No. Invoice</th>
+                  <th>Pelanggan</th>
+                  <th>Tanggal</th>
+                  <th>Status</th>
+                  <th className="text-right">Total</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-[var(--border)] text-sm">
-                {invoices.map((inv: any) => (
+              <tbody>
+                {paged.map((inv: any) => (
                   <tr
                     key={inv.id}
                     onClick={() => navigate(`/invoices/${inv.id}`)}
-                    className="hover:bg-[var(--navy-50)] cursor-pointer transition-colors"
+                    className="cursor-pointer"
                   >
-                    <td className="py-3 px-4 font-mono text-xs font-bold text-[#1f3a5f] dark:text-[#c9a227]">
-                      {inv.invoice_number}
-                    </td>
-                    <td className="py-3 px-4 font-mono text-xs">{inv.wo_number}</td>
-                    <td className="py-3 px-4 text-xs text-[var(--text-muted)]">{formatDateId(inv.issued_at)}</td>
-                    <td className="py-3 px-4">
-                      <div className="font-semibold">
-                        {inv.plate_current} — {inv.brand} {inv.model}
+                    <td>
+                      <div className="flex flex-col items-start gap-1">
+                        <PlateChip plate={inv.plate_current} />
+                        <span className="text-[12px] leading-4 text-[var(--text-muted)]">
+                          {inv.brand} {inv.model}
+                        </span>
                       </div>
-                      <div className="text-xs text-[var(--text-muted)]">{inv.customer_name}</div>
                     </td>
-                    <td className="py-3 px-4 text-right font-mono tabular-nums font-bold">
-                      {formatRupiah(inv.total)}
+                    <td>
+                      <div className="font-mono text-[14px] leading-5 font-medium text-[var(--text)]">
+                        {inv.invoice_number}
+                      </div>
+                      <div className="font-mono text-[12px] leading-4 text-[var(--text-muted)]">
+                        {inv.wo_number}
+                      </div>
                     </td>
-                    <td className="py-3 px-4">
+                    <td className="text-[14px] leading-5 text-[var(--text)]">{inv.customer_name}</td>
+                    <td className="text-[14px] leading-5 text-[var(--text-muted)] tabular-nums">
+                      {formatDateId(inv.issued_at)}
+                    </td>
+                    <td>
                       <StatusBadge status={inv.status} kind="invoice" />
+                    </td>
+                    <td className="text-right font-mono text-[14px] leading-5 font-medium tabular-nums whitespace-nowrap">
+                      {formatRupiah(inv.total)}
                     </td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
+
+          {/* Mobile 2-Row Cards */}
+          <div className="md:hidden divide-y divide-[var(--border)]">
+            {paged.map((inv: any) => (
+              <div
+                key={inv.id}
+                onClick={() => navigate(`/invoices/${inv.id}`)}
+                className="p-4 space-y-2 hover:bg-[var(--bg)] cursor-pointer"
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <PlateChip plate={inv.plate_current} />
+                  <StatusBadge status={inv.status} kind="invoice" />
+                </div>
+                <div className="flex items-center justify-between gap-2 text-[14px] leading-5">
+                  <span className="text-[var(--text)] truncate">
+                    {inv.brand} {inv.model} · {inv.customer_name}
+                  </span>
+                  <span className="font-mono font-medium text-[var(--text)] shrink-0">
+                    {formatRupiah(inv.total)}
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <PaginationBar
+            page={page}
+            pageSize={pageSize}
+            totalItems={filtered.length}
+            onPageChange={setPage}
+          />
         </div>
       )}
-    </div>
+    </PageLayout>
   );
 };
 
@@ -94,7 +225,12 @@ export const InvoiceDetailPage: React.FC = () => {
   const [payOpen, setPayOpen] = useState(false);
   const [payForm, setPayForm] = useState({ method: 'Transfer BCA', amount: 0 });
 
-  const { data: inv, isLoading } = useQuery<any>({
+  const {
+    data: inv,
+    isLoading,
+    isError,
+    refetch,
+  } = useQuery<any>({
     queryKey: ['invoice', invId],
     queryFn: () => apiFetch(`/invoices/${invId}`),
   });
@@ -106,7 +242,7 @@ export const InvoiceDetailPage: React.FC = () => {
         body: JSON.stringify(payForm),
       }),
     onSuccess: () => {
-      showToast('Pembayaran berhasil dicatat', 'success');
+      showToast('Pembayaran disimpan', 'success');
       setPayOpen(false);
       queryClient.invalidateQueries({ queryKey: ['invoice', invId] });
       queryClient.invalidateQueries({ queryKey: ['invoices'] });
@@ -114,115 +250,113 @@ export const InvoiceDetailPage: React.FC = () => {
     onError: (err: any) => showToast(err.message, 'error'),
   });
 
-  if (isLoading || !inv) {
-    return <div className="h-64 bg-[var(--surface)] rounded-[10px] border border-[var(--border)] animate-pulse" />;
+  if (isLoading) {
+    return (
+      <PageLayout title="Detail Invoice">
+        <TableSkeleton rows={5} />
+      </PageLayout>
+    );
+  }
+
+  if (isError || !inv) {
+    return (
+      <PageLayout title="Detail Invoice">
+        <ErrorCard onRetry={() => refetch()} />
+      </PageLayout>
+    );
   }
 
   const totalPaid = (inv.payments || []).reduce((s: number, p: any) => s + p.amount, 0);
   const remaining = Math.max(0, inv.total - totalPaid);
+  const canPay = (user?.role === 'SA' || user?.role === 'AD') && inv.status !== 'LUNAS';
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-3 no-print">
-        <Link
-          to="/invoices"
-          className="inline-flex items-center gap-1.5 text-xs font-medium text-[var(--text-muted)] hover:text-[var(--text)]"
-        >
-          <ArrowLeft className="w-4 h-4" /> Kembali ke Daftar Invoice
-        </Link>
-
-        <div className="flex items-center gap-2">
-          {(user?.role === 'SA' || user?.role === 'AD') && inv.status !== 'LUNAS' && (
-            <button
-              onClick={() => {
-                setPayForm({ method: 'Transfer BCA', amount: remaining });
-                setPayOpen(true);
-              }}
-              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-[6px] bg-[#2e8b57] text-white text-xs font-semibold"
-            >
-              <CreditCard className="w-4 h-4" /> Catat Pembayaran
-            </button>
-          )}
+    <PageLayout
+      title={inv.invoice_number}
+      primaryAction={
+        canPay ? (
           <button
-            onClick={() => window.print()}
-            className="inline-flex items-center gap-1.5 px-4 py-2 rounded-[6px] bg-[#1f3a5f] text-white text-xs font-semibold"
+            type="button"
+            onClick={() => {
+              setPayForm({ method: 'Transfer BCA', amount: remaining });
+              setPayOpen(true);
+            }}
+            className="wc-btn-primary"
           >
-            <Printer className="w-4 h-4" /> Cetak Invoice Resmi (A4)
+            <CreditCard className="w-5 h-5 stroke-[1.5]" />
+            <span>Catat Pembayaran</span>
           </button>
-        </div>
-      </div>
-
-      {/* Printable A4 Invoice Document */}
-      <div className="bg-white text-[#14243b] p-6 sm:p-10 rounded-[10px] border border-[var(--border)] print-container space-y-6">
-        <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4 border-b-2 border-[#14243b] pb-4">
-          <div className="flex items-center gap-3.5">
-            <BritLogo size={54} showText={false} />
-            <div>
-              <h1 className="text-xl font-bold tracking-tight">BENGKEL BRIT AUTO</h1>
-              <p className="text-xs text-slate-600">
-                Spesialis Jaguar · Land Rover · Bentley · Rolls-Royce
-              </p>
-              <p className="text-xs text-slate-600">
-                Jl. RS Fatmawati Raya No. 88, Cilandak, Jakarta Selatan · Telp: 021-7591-8899
-              </p>
-            </div>
+        ) : (
+          <button type="button" onClick={() => window.print()} className="wc-btn-primary">
+            <Printer className="w-5 h-5 stroke-[1.5]" />
+            <span>Cetak Invoice</span>
+          </button>
+        )
+      }
+      toolbar={
+        canPay ? (
+          <div className="flex items-center justify-end">
+            <button type="button" onClick={() => window.print()} className="wc-btn-secondary">
+              <Printer className="w-4 h-4 stroke-[1.5]" />
+              <span>Cetak Invoice</span>
+            </button>
           </div>
-
-          <div className="sm:text-right">
-            <div className="text-xs font-bold uppercase text-slate-500">INVOICE RESMI</div>
-            <div className="font-mono text-xl font-bold text-[#1f3a5f]">{inv.invoice_number}</div>
-            <div className="text-xs text-slate-600 mt-0.5">
-              Tanggal Terbit: {formatDateTimeId(inv.issued_at)}
-            </div>
-            <div className="mt-1">
-              <StatusBadge status={inv.status} kind="invoice" />
-            </div>
+        ) : undefined
+      }
+    >
+      <div className="wc-card p-6 sm:p-8 print-container space-y-6">
+        <div className="flex flex-wrap items-start justify-between gap-4 pb-6 border-b border-[var(--border)]">
+          <div className="flex items-center gap-3">
+            <BritLogo size={36} showText={true} />
+          </div>
+          <div className="flex items-center gap-3">
+            <PlateChip plate={inv.plate_current} size="lg" />
+            <StatusBadge status={inv.status} kind="invoice" />
           </div>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 text-[14px] leading-5">
           <div className="space-y-1">
-            <div className="text-slate-500 uppercase font-semibold">Ditagihkan Kepada:</div>
-            <div className="font-bold text-sm">{inv.customer_name}</div>
-            <div>Telp: {inv.customer_phone}</div>
-            <div>{inv.customer_address || '-'}</div>
+            <div className="text-[12px] leading-4 text-[var(--text-muted)]">Pelanggan</div>
+            <div className="font-semibold text-[var(--text)]">{inv.customer_name}</div>
+            <div className="font-mono text-[12px] leading-4 text-[var(--text-muted)]">
+              {inv.customer_phone}
+            </div>
           </div>
           <div className="space-y-1 sm:text-right">
-            <div className="text-slate-500 uppercase font-semibold">Detail Kendaraan & Servis:</div>
-            <div>
-              Nomor Polisi: <strong className="font-mono">{inv.plate_current}</strong>
+            <div className="text-[12px] leading-4 text-[var(--text-muted)]">Kendaraan & Work Order</div>
+            <div className="font-semibold text-[var(--text)]">
+              {inv.brand} {inv.model} ({inv.year})
             </div>
-            <div>
-              Kendaraan: {inv.brand} {inv.model} ({inv.year})
-            </div>
-            <div>
-              No. Work Order: <strong className="font-mono">{inv.wo_number}</strong> · Odometer:{' '}
-              {Number(inv.odometer_in).toLocaleString('id-ID')} km
+            <div className="font-mono text-[12px] leading-4 text-[var(--text-muted)]">
+              {inv.wo_number} · {formatDateTimeId(inv.issued_at)}
             </div>
           </div>
         </div>
 
-        <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse text-xs border border-slate-300">
+        <div className="overflow-x-auto border border-[var(--border)] rounded-[8px]">
+          <table className="wc-table">
             <thead>
-              <tr className="bg-slate-100 uppercase text-slate-600">
-                <th className="border border-slate-300 py-2.5 px-3">Kategori</th>
-                <th className="border border-slate-300 py-2.5 px-3">Deskripsi Item (Snapshot Harga)</th>
-                <th className="border border-slate-300 py-2.5 px-3 text-right">Qty</th>
-                <th className="border border-slate-300 py-2.5 px-3 text-right">Harga Satuan</th>
-                <th className="border border-slate-300 py-2.5 px-3 text-right">Jumlah</th>
+              <tr>
+                <th>Tipe</th>
+                <th>Deskripsi</th>
+                <th className="text-right">Qty</th>
+                <th className="text-right">Harga Satuan</th>
+                <th className="text-right">Jumlah</th>
               </tr>
             </thead>
             <tbody>
               {inv.items?.map((it: any) => (
                 <tr key={it.id}>
-                  <td className="border border-slate-300 py-2 px-3 font-mono font-semibold">{it.item_type}</td>
-                  <td className="border border-slate-300 py-2 px-3">{it.description}</td>
-                  <td className="border border-slate-300 py-2 px-3 text-right font-mono tabular-nums">{it.qty}</td>
-                  <td className="border border-slate-300 py-2 px-3 text-right font-mono tabular-nums">
+                  <td className="font-mono text-[12px] leading-4 text-[var(--text-muted)]">
+                    {it.item_type}
+                  </td>
+                  <td className="font-medium text-[var(--text)]">{it.description}</td>
+                  <td className="text-right font-mono tabular-nums">{it.qty}</td>
+                  <td className="text-right font-mono tabular-nums whitespace-nowrap">
                     {formatRupiah(it.unit_price)}
                   </td>
-                  <td className="border border-slate-300 py-2 px-3 text-right font-mono tabular-nums font-semibold">
+                  <td className="text-right font-mono font-medium tabular-nums whitespace-nowrap">
                     {formatRupiah(it.amount)}
                   </td>
                 </tr>
@@ -231,54 +365,48 @@ export const InvoiceDetailPage: React.FC = () => {
           </table>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 items-start">
-          <div className="space-y-2 text-xs">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 items-start pt-2">
+          <div className="space-y-1 text-[12px] leading-4 text-[var(--text-muted)]">
             {inv.warranties?.length > 0 && (
-              <div className="p-3 rounded border border-slate-300 bg-slate-50">
-                <div className="font-bold flex items-center gap-1.5 mb-1">
-                  <ShieldCheck className="w-4 h-4 text-[#2e8b57]" /> Jaminan Garansi Servis (BR-09):
-                </div>
-                <ul className="space-y-0.5">
-                  {inv.warranties.map((w: any) => (
-                    <li key={w.id}>
-                      • {w.job_name} ({w.component_key}): Berlaku s/d <strong>{formatDateId(w.end_date)}</strong>
-                    </li>
-                  ))}
-                </ul>
-              </div>
+              <>
+                <div className="font-semibold text-[var(--text)]">Garansi aktif:</div>
+                {inv.warranties.map((w: any) => (
+                  <div key={w.id}>
+                    {w.job_name} ({w.component_key}) s/d {formatDateId(w.end_date)}
+                  </div>
+                ))}
+              </>
             )}
           </div>
 
-          <div className="space-y-1.5 text-xs ml-auto w-full max-w-xs">
+          <div className="space-y-2 text-[14px] leading-5 ml-auto w-full max-w-xs">
             <div className="flex justify-between">
-              <span>Subtotal Jasa:</span>
+              <span className="text-[var(--text-muted)]">Subtotal jasa</span>
               <span className="font-mono tabular-nums">{formatRupiah(inv.subtotal_labor)}</span>
             </div>
             <div className="flex justify-between">
-              <span>Subtotal Spare Part:</span>
+              <span className="text-[var(--text-muted)]">Subtotal part</span>
               <span className="font-mono tabular-nums">{formatRupiah(inv.subtotal_parts)}</span>
             </div>
-            <div className="flex justify-between">
-              <span>Biaya Lain-lain:</span>
-              <span className="font-mono tabular-nums">{formatRupiah(inv.other_cost)}</span>
-            </div>
-            <div className="flex justify-between text-[#c0392b]">
-              <span>Diskon:</span>
-              <span className="font-mono tabular-nums">-{formatRupiah(inv.discount)}</span>
-            </div>
-            <div className="pt-2 border-t-2 border-[#14243b] flex justify-between text-base font-bold">
-              <span>Total Tagihan:</span>
+            {inv.discount > 0 && (
+              <div className="flex justify-between text-[var(--danger)]">
+                <span>Diskon</span>
+                <span className="font-mono tabular-nums">-{formatRupiah(inv.discount)}</span>
+              </div>
+            )}
+            <div className="pt-2 border-t border-[var(--border)] flex justify-between text-[16px] leading-6 font-semibold">
+              <span>Total</span>
               <span className="font-mono tabular-nums">{formatRupiah(inv.total)}</span>
             </div>
-            <div className="flex justify-between text-[#2e8b57] font-semibold">
-              <span>Telah Dibayar:</span>
+            <div className="flex justify-between text-[var(--success)] font-medium">
+              <span>Dibayar</span>
               <span className="font-mono tabular-nums">{formatRupiah(totalPaid)}</span>
             </div>
           </div>
         </div>
       </div>
 
-      <Modal open={payOpen} onClose={() => setPayOpen(false)} title="Catat Pembayaran Invoice">
+      <Modal open={payOpen} onClose={() => setPayOpen(false)} title="Catat Pembayaran">
         <form
           onSubmit={e => {
             e.preventDefault();
@@ -287,11 +415,13 @@ export const InvoiceDetailPage: React.FC = () => {
           className="space-y-4"
         >
           <div>
-            <label className="block text-xs font-medium mb-1">Metode Pembayaran</label>
+            <label className="block text-[12px] leading-4 font-medium text-[var(--text)] mb-1.5">
+              Metode *
+            </label>
             <select
               value={payForm.method}
               onChange={e => setPayForm(f => ({ ...f, method: e.target.value }))}
-              className="w-full h-10 px-3 rounded-[6px] border border-[var(--border)] bg-[var(--surface)] text-sm"
+              className="w-full wc-input"
             >
               <option value="Transfer BCA">Transfer BCA</option>
               <option value="Kartu Debit / Kredit">Kartu Debit / Kredit</option>
@@ -300,35 +430,29 @@ export const InvoiceDetailPage: React.FC = () => {
             </select>
           </div>
           <div>
-            <label className="block text-xs font-medium mb-1">Nominal Pembayaran (Rp)</label>
+            <label className="block text-[12px] leading-4 font-medium text-[var(--text)] mb-1.5">
+              Nominal (Rp) *
+            </label>
             <input
               type="number"
               required
               min={1}
               value={payForm.amount}
               onChange={e => setPayForm(f => ({ ...f, amount: Number(e.target.value) }))}
-              className="w-full h-10 px-3 rounded-[6px] border border-[var(--border)] text-sm font-mono tabular-nums"
+              className="w-full wc-input font-mono tabular-nums"
             />
           </div>
           <div className="flex justify-end gap-2">
-            <button
-              type="button"
-              onClick={() => setPayOpen(false)}
-              className="px-4 py-2 rounded-[6px] border border-[var(--border)] text-xs font-medium"
-            >
+            <button type="button" onClick={() => setPayOpen(false)} className="wc-btn-secondary">
               Batal
             </button>
-            <button
-              type="submit"
-              disabled={payMutation.isPending}
-              className="px-4 py-2 rounded-[6px] bg-[#2e8b57] text-white text-xs font-semibold"
-            >
-              Simpan Pembayaran
+            <button type="submit" disabled={payMutation.isPending} className="wc-btn-primary">
+              Simpan
             </button>
           </div>
         </form>
       </Modal>
-    </div>
+    </PageLayout>
   );
 };
 
@@ -347,7 +471,12 @@ export const ComplaintsPage: React.FC = () => {
     warrantyDays: 90,
   });
 
-  const { data: complaints = [] } = useQuery<any[]>({
+  const {
+    data: complaints = [],
+    isLoading,
+    isError,
+    refetch,
+  } = useQuery<any[]>({
     queryKey: ['complaints'],
     queryFn: () => apiFetch('/complaints'),
   });
@@ -369,10 +498,7 @@ export const ComplaintsPage: React.FC = () => {
         body: JSON.stringify(form),
       }),
     onSuccess: (res: any) => {
-      showToast(
-        `Komplain berhasil diklasifikasikan otomatis sebagai: ${res.type} (${res.cost_borne})`,
-        'success'
-      );
+      showToast(`Komplain disimpan (${res.type})`, 'success');
       setModalOpen(false);
       queryClient.invalidateQueries({ queryKey: ['complaints'] });
     },
@@ -382,7 +508,7 @@ export const ComplaintsPage: React.FC = () => {
   const createWoMutation = useMutation({
     mutationFn: (id: number) => apiFetch(`/complaints/${id}/create-wo`, { method: 'POST' }),
     onSuccess: (wo: any) => {
-      showToast(`Work Order Garansi ${wo.wo_number} berhasil dibuat!`, 'success');
+      showToast(`WO Garansi ${wo.wo_number} dibuat`, 'success');
       navigate(`/work-orders/${wo.id}`);
     },
     onError: (err: any) => showToast(err.message, 'error'),
@@ -391,89 +517,92 @@ export const ComplaintsPage: React.FC = () => {
   const canManage = user?.role === 'SA' || user?.role === 'AD';
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-xl sm:text-2xl font-bold">Klaim Garansi & Penanganan Komplain (BR-09)</h1>
-          <p className="text-xs sm:text-sm text-[var(--text-muted)]">
-            Komponen sama dalam masa garansi → Digaransikan penuh (Jasa Rp0, Part Rp0). Komponen berbeda → Part dibayar pelanggan, Jasa gratis.
-          </p>
-        </div>
-        {canManage && (
-          <button
-            onClick={() => setModalOpen(true)}
-            className="inline-flex items-center gap-2 px-4 py-2 rounded-[6px] bg-[#1f3a5f] text-white text-sm font-semibold hover:bg-[#2c4f7c] self-start"
-          >
-            <Plus className="w-4 h-4" />
-            <span>+ Catat & Klasifikasi Komplain</span>
+    <PageLayout
+      title="Klaim Garansi"
+      primaryAction={
+        canManage ? (
+          <button type="button" onClick={() => setModalOpen(true)} className="wc-btn-primary">
+            <Plus className="w-5 h-5 stroke-[1.5]" aria-hidden="true" />
+            <span>Catat Komplain</span>
           </button>
-        )}
-      </div>
+        ) : undefined
+      }
+    >
+      {isLoading ? (
+        <TableSkeleton rows={4} />
+      ) : isError ? (
+        <ErrorCard onRetry={() => refetch()} />
+      ) : complaints.length === 0 ? (
+        <EmptyState
+          icon={ShieldAlert}
+          message="Belum ada klaim garansi atau komplain."
+          actionLabel={canManage ? 'Catat Komplain' : undefined}
+          onAction={canManage ? () => setModalOpen(true) : undefined}
+        />
+      ) : (
+        <div className="wc-card p-0 overflow-hidden">
+          <div className="divide-y divide-[var(--border)]">
+            {complaints.map((c: any) => (
+              <div
+                key={c.id}
+                className="p-4 sm:px-6 flex flex-wrap items-center justify-between gap-4 hover:bg-[var(--bg)]"
+              >
+                <div className="space-y-1 min-w-0">
+                  <div className="flex flex-wrap items-center gap-2.5">
+                    <PlateChip plate={c.plate_current} />
+                    <span className="text-[14px] leading-5 font-semibold text-[var(--text)]">
+                      {c.brand} {c.model} · {c.customer_name}
+                    </span>
+                    <StatusBadge status={c.type} kind="warranty" />
+                  </div>
+                  <div className="text-[14px] leading-5 text-[var(--text)]">{c.description}</div>
+                  <div className="text-[12px] leading-4 text-[var(--text-muted)]">
+                    Komponen: <span className="font-mono">{c.faulty_component_key}</span> · {c.cost_borne}
+                  </div>
+                </div>
 
-      <div className="grid grid-cols-1 gap-4">
-        {complaints.map((c: any) => (
-          <div
-            key={c.id}
-            className="bg-[var(--surface)] rounded-[10px] border border-[var(--border)] p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4"
-          >
-            <div className="space-y-1.5">
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="font-mono font-bold text-sm">{c.plate_current}</span>
-                <span className="text-sm font-semibold">
-                  {c.brand} {c.model} · {c.customer_name}
-                </span>
-                <StatusBadge status={c.type} kind="warranty" />
+                <div className="shrink-0">
+                  {c.work_order_id ? (
+                    <Link to={`/work-orders/${c.work_order_id}`} className="wc-btn-secondary">
+                      <span>Lihat WO</span>
+                      <ChevronRight className="w-4 h-4 stroke-[1.5]" />
+                    </Link>
+                  ) : (
+                    canManage && (
+                      <button
+                        type="button"
+                        onClick={() => createWoMutation.mutate(c.id)}
+                        disabled={createWoMutation.isPending}
+                        className="wc-btn-primary"
+                      >
+                        <Wrench className="w-4 h-4 stroke-[1.5]" />
+                        <span>Buat WO Garansi</span>
+                      </button>
+                    )
+                  )}
+                </div>
               </div>
-              <p className="text-sm text-[var(--text)]">{c.description}</p>
-              <div className="text-xs text-[var(--text-muted)]">
-                Komponen Sebelumnya: <strong className="font-mono">{c.prev_component_key}</strong> → Komponen Bermasalah:{' '}
-                <strong className="font-mono">{c.faulty_component_key}</strong> · Skema Biaya:{' '}
-                <strong className="text-[var(--text)]">{c.cost_borne}</strong>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-2 shrink-0">
-              {c.work_order_id ? (
-                <Link
-                  to={`/work-orders/${c.work_order_id}`}
-                  className="px-3.5 py-2 rounded-[6px] border border-[var(--border)] text-xs font-semibold hover:bg-[var(--navy-50)]"
-                >
-                  Lihat {c.wo_number || `WO #${c.work_order_id}`}
-                </Link>
-              ) : (
-                canManage && (
-                  <button
-                    onClick={() => createWoMutation.mutate(c.id)}
-                    disabled={createWoMutation.isPending}
-                    className="px-3.5 py-2 rounded-[6px] bg-[#1f3a5f] text-white text-xs font-semibold hover:bg-[#2c4f7c] inline-flex items-center gap-1.5"
-                  >
-                    <Wrench className="w-3.5 h-3.5" /> Buat WO Garansi
-                  </button>
-                )
-              )}
-            </div>
+            ))}
           </div>
-        ))}
-      </div>
+        </div>
+      )}
 
-      <Modal
-        open={modalOpen}
-        onClose={() => setModalOpen(false)}
-        title="Catat Komplain & Klasifikasi Otomatis Garansi (BR-09)"
-      >
+      <Modal open={modalOpen} onClose={() => setModalOpen(false)} title="Catat Komplain">
         <form
           onSubmit={e => {
             e.preventDefault();
             createMutation.mutate();
           }}
-          className="space-y-3.5"
+          className="space-y-4"
         >
           <div>
-            <label className="block text-xs font-medium mb-1">Pilih Kendaraan</label>
+            <label className="block text-[12px] leading-4 font-medium text-[var(--text)] mb-1.5">
+              Kendaraan *
+            </label>
             <select
               value={form.vehicleId}
               onChange={e => setForm(f => ({ ...f, vehicleId: Number(e.target.value) }))}
-              className="w-full h-10 px-3 rounded-[6px] border border-[var(--border)] bg-[var(--surface)] text-sm"
+              className="w-full wc-input"
             >
               {vehicles.map((v: any) => (
                 <option key={v.id} value={v.id}>
@@ -483,87 +612,86 @@ export const ComplaintsPage: React.FC = () => {
             </select>
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
-              <label className="block text-xs font-medium mb-1">Komponen Servis Sebelumnya</label>
+              <label className="block text-[12px] leading-4 font-medium text-[var(--text)] mb-1.5">
+                Komponen sebelumnya *
+              </label>
               <select
                 value={form.prevComponentKey}
                 onChange={e => setForm(f => ({ ...f, prevComponentKey: e.target.value }))}
-                className="w-full h-10 px-3 rounded-[6px] border border-[var(--border)] bg-[var(--surface)] text-xs font-mono"
+                className="w-full wc-input font-mono text-[12px]"
               >
                 {jobTypes.map((jt: any) => (
                   <option key={jt.id} value={jt.component_key}>
-                    {jt.component_key} ({jt.name})
+                    {jt.component_key}
                   </option>
                 ))}
               </select>
             </div>
             <div>
-              <label className="block text-xs font-medium mb-1">Komponen Bermasalah Saat Ini</label>
+              <label className="block text-[12px] leading-4 font-medium text-[var(--text)] mb-1.5">
+                Komponen bermasalah *
+              </label>
               <select
                 value={form.faultyComponentKey}
                 onChange={e => setForm(f => ({ ...f, faultyComponentKey: e.target.value }))}
-                className="w-full h-10 px-3 rounded-[6px] border border-[var(--border)] bg-[var(--surface)] text-xs font-mono"
+                className="w-full wc-input font-mono text-[12px]"
               >
                 {jobTypes.map((jt: any) => (
                   <option key={jt.id} value={jt.component_key}>
-                    {jt.component_key} ({jt.name})
+                    {jt.component_key}
                   </option>
                 ))}
               </select>
             </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs font-medium mb-1">Tanggal Servis Sebelumnya</label>
+              <label className="block text-[12px] leading-4 font-medium text-[var(--text)] mb-1.5">
+                Tanggal servis lalu *
+              </label>
               <input
                 type="date"
                 value={form.serviceDate}
                 onChange={e => setForm(f => ({ ...f, serviceDate: e.target.value }))}
-                className="w-full h-10 px-3 rounded-[6px] border border-[var(--border)] text-sm font-mono"
+                className="w-full wc-input font-mono"
               />
             </div>
             <div>
-              <label className="block text-xs font-medium mb-1">Masa Garansi Komponen (Hari)</label>
+              <label className="block text-[12px] leading-4 font-medium text-[var(--text)] mb-1.5">
+                Masa garansi (hari) *
+              </label>
               <input
                 type="number"
                 value={form.warrantyDays}
                 onChange={e => setForm(f => ({ ...f, warrantyDays: Number(e.target.value) }))}
-                className="w-full h-10 px-3 rounded-[6px] border border-[var(--border)] text-sm font-mono"
+                className="w-full wc-input font-mono tabular-nums"
               />
             </div>
           </div>
 
           <div>
-            <label className="block text-xs font-medium mb-1">Deskripsi Keluhan Komplain</label>
+            <label className="block text-[12px] leading-4 font-medium text-[var(--text)] mb-1.5">
+              Keluhan *
+            </label>
             <textarea
               rows={2}
               required
               value={form.description}
               onChange={e => setForm(f => ({ ...f, description: e.target.value }))}
-              className="w-full p-3 rounded-[6px] border border-[var(--border)] text-sm"
+              className="w-full p-3 rounded-[8px] border border-[var(--border-strong)] bg-[var(--surface)] text-[14px] leading-5"
             />
           </div>
 
           <div className="flex justify-end gap-2 pt-2">
-            <button
-              type="button"
-              onClick={() => setModalOpen(false)}
-              className="px-4 py-2 rounded-[6px] border border-[var(--border)] text-xs font-medium"
-            >
+            <button type="button" onClick={() => setModalOpen(false)} className="wc-btn-secondary">
               Batal
             </button>
-            <button
-              type="submit"
-              disabled={createMutation.isPending}
-              className="px-4 py-2 rounded-[6px] bg-[#1f3a5f] text-white text-xs font-semibold"
-            >
-              Klasifikasi & Simpan Komplain
+            <button type="submit" disabled={createMutation.isPending} className="wc-btn-primary">
+              Simpan
             </button>
           </div>
         </form>
       </Modal>
-    </div>
+    </PageLayout>
   );
 };

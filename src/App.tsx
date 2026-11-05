@@ -28,7 +28,7 @@ function ProtectedLayout() {
   const { user, loading } = useAuth();
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-[#f4f6f9] text-[#14243b] text-sm font-medium">
+      <div className="min-h-screen flex items-center justify-center bg-[var(--background)] text-[var(--text-primary)] text-sm font-medium">
         Memuat sesi Brit Auto WMS...
       </div>
     );

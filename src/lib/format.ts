@@ -41,24 +41,24 @@ export const ROLE_LABELS: Record<Role, string> = {
   SA: 'Service Advisor',
   KR: 'Kepala Regu',
   TK: 'Teknisi',
-  SP: 'Bagian Spare Part',
+  SP: 'Spare Part',
   AD: 'Admin',
   PM: 'Pemilik',
 };
 
 export const WO_STATUS_LABELS: Record<string, string> = {
-  MENUNGGU_PENUGASAN: 'Menunggu Penugasan',
+  MENUNGGU_PENUGASAN: 'Perlu ditugaskan',
   DITUGASKAN: 'Ditugaskan',
   DIKERJAKAN: 'Dikerjakan',
-  SELESAI_DIKERJAKAN: 'Selesai Dikerjakan',
-  DIPERIKSA: 'Diperiksa SA',
-  DITUTUP: 'Ditutup',
+  SELESAI_DIKERJAKAN: 'Perlu diperiksa',
+  DIPERIKSA: 'Siap diserahkan',
+  DITUTUP: 'Selesai',
   DIBATALKAN: 'Dibatalkan',
 };
 
 export const JOB_STATUS_LABELS: Record<string, string> = {
   MENUNGGU: 'Menunggu',
-  BERJALAN: 'Sedang Dikerjakan',
-  MENUNGGU_PART: 'Menunggu Part',
+  BERJALAN: 'Dikerjakan',
+  MENUNGGU_PART: 'Tunggu part',
   SELESAI: 'Selesai',
 };

@@ -36,7 +36,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setToasts(prev => [...prev, { id, message, type }]);
     setTimeout(() => {
       setToasts(prev => prev.filter(t => t.id !== id));
-    }, 4000);
+    }, 3000);
   }, []);
 
   useEffect(() => {
@@ -73,32 +73,33 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   return (
     <AuthContext.Provider value={{ user, loading, login, logout, showToast }}>
       {children}
-      {/* Toast Container (top-right, auto dismiss 4s) */}
+      {/* Toast Container: kanan-atas, 3 detik */}
       <div className="fixed top-4 right-4 z-50 flex flex-col gap-2 max-w-sm w-full pointer-events-none px-4 sm:px-0 no-print">
         {toasts.map(t => (
           <div
             key={t.id}
             role="status"
-            className={`pointer-events-auto flex items-start gap-2.5 px-4 py-3 rounded-[10px] shadow-lg border text-sm font-medium transition-all ${
+            style={{ boxShadow: 'var(--shadow-popover)' }}
+            className={`pointer-events-auto flex items-start gap-2.5 px-3.5 py-2.5 rounded-[8px] border text-[14px] leading-5 font-medium ${
               t.type === 'error'
-                ? 'bg-[#fbe7e4] text-[#c0392b] border-[#c0392b]/30'
+                ? 'bg-[var(--danger-bg)] text-[var(--danger)] border-[var(--danger)]'
                 : t.type === 'info'
-                ? 'bg-[#e2eefa] text-[#1f6fb2] border-[#1f6fb2]/30'
-                : 'bg-[#e4f4ec] text-[#2e8b57] border-[#2e8b57]/30'
+                ? 'bg-[var(--info-bg)] text-[var(--info)] border-[var(--border)]'
+                : 'bg-[var(--success-bg)] text-[var(--success)] border-[var(--border)]'
             }`}
           >
             {t.type === 'error' ? (
-              <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+              <AlertCircle className="w-4 h-4 stroke-[1.5] shrink-0 mt-0.5" />
             ) : (
-              <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5" />
+              <CheckCircle2 className="w-4 h-4 stroke-[1.5] shrink-0 mt-0.5" />
             )}
             <span className="flex-1">{t.message}</span>
             <button
               onClick={() => setToasts(prev => prev.filter(x => x.id !== t.id))}
               aria-label="Tutup pesan"
-              className="opacity-70 hover:opacity-100"
+              className="opacity-70 hover:opacity-100 cursor-pointer"
             >
-              <X className="w-4 h-4" />
+              <X className="w-4 h-4 stroke-[1.5]" />
             </button>
           </div>
         ))}

@@ -7,18 +7,21 @@ import {
   Plus,
   History,
   RefreshCw,
-  ShieldCheck,
   UserPlus,
-  Phone,
-  Mail,
-  MapPin,
-  FileText,
+  Users,
 } from 'lucide-react';
 import { apiFetch } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
 import { formatDateId, formatRupiah } from '../../lib/format';
-import { Modal, EmptyState } from '../../components/ui/Modal';
-import { StatusBadge } from '../../components/domain/StatusBadge';
+import { PageLayout } from '../../components/layout/PageLayout';
+import {
+  Modal,
+  EmptyState,
+  TableSkeleton,
+  ErrorCard,
+  PaginationBar,
+} from '../../components/ui/Modal';
+import { StatusBadge, PlateChip } from '../../components/domain/StatusBadge';
 
 export const VehiclesPage: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -28,6 +31,7 @@ export const VehiclesPage: React.FC = () => {
 
   const initialQ = searchParams.get('q') || '';
   const [query, setQuery] = useState(initialQ);
+  const [page, setPage] = useState(1);
   const [selectedVehicleId, setSelectedVehicleId] = useState<number | null>(null);
   const [changePlateModal, setChangePlateModal] = useState<{ id: number; current: string } | null>(null);
   const [newPlateInput, setNewPlateInput] = useState('');
@@ -48,7 +52,12 @@ export const VehiclesPage: React.FC = () => {
     if (p !== null) setQuery(p);
   }, [searchParams]);
 
-  const { data: vehicles = [], isLoading } = useQuery<any[]>({
+  const {
+    data: vehicles = [],
+    isLoading,
+    isError,
+    refetch,
+  } = useQuery<any[]>({
     queryKey: ['vehicles', query],
     queryFn: () => apiFetch(`/vehicles/search?q=${encodeURIComponent(query)}`),
   });
@@ -71,7 +80,7 @@ export const VehiclesPage: React.FC = () => {
         body: JSON.stringify({ newPlate }),
       }),
     onSuccess: () => {
-      showToast('Nomor polisi berhasil diperbarui & riwayat plat disimpan (BR-01)', 'success');
+      showToast('Plat nomor diperbarui', 'success');
       setChangePlateModal(null);
       setNewPlateInput('');
       queryClient.invalidateQueries({ queryKey: ['vehicles'] });
@@ -86,7 +95,7 @@ export const VehiclesPage: React.FC = () => {
         body: JSON.stringify(payload),
       }),
     onSuccess: () => {
-      showToast('Kendaraan baru berhasil ditambahkan', 'success');
+      showToast('Kendaraan disimpan', 'success');
       setAddVehicleModal(false);
       queryClient.invalidateQueries({ queryKey: ['vehicles'] });
     },
@@ -94,235 +103,231 @@ export const VehiclesPage: React.FC = () => {
   });
 
   const canWrite = user?.role === 'SA' || user?.role === 'AD';
+  const canSeePhone = user?.role === 'PM' || user?.role === 'AD' || user?.role === 'SA';
+  const canSeeFinancials = user?.role === 'PM' || user?.role === 'AD' || user?.role === 'SA';
+
+  const pageSize = 20;
+  const pagedVehicles = vehicles.slice((page - 1) * pageSize, page * pageSize);
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-xl sm:text-2xl font-bold">Data Kendaraan & Riwayat Nomor Polisi (BR-01)</h1>
-          <p className="text-xs sm:text-sm text-[var(--text-muted)]">
-            Pencarian instan mencakup plat nomor aktif maupun plat lama (contoh: ketik <strong>B 128 XL</strong> untuk menemukan <strong>B 21 XL</strong>).
-          </p>
-        </div>
-        {canWrite && (
-          <button
-            onClick={() => setAddVehicleModal(true)}
-            className="inline-flex items-center gap-2 px-4 py-2 rounded-[6px] bg-[#1f3a5f] text-white text-sm font-medium hover:bg-[#2c4f7c] whitespace-nowrap self-start"
-          >
-            <Plus className="w-4 h-4" />
-            <span>+ Tambah Kendaraan</span>
+    <PageLayout
+      title="Kendaraan"
+      primaryAction={
+        canWrite ? (
+          <button type="button" onClick={() => setAddVehicleModal(true)} className="wc-btn-primary">
+            <Plus className="w-5 h-5 stroke-[1.5]" aria-hidden="true" />
+            <span>Tambah Kendaraan</span>
           </button>
-        )}
-      </div>
-
-      {/* Search Bar + Quick Demo Filter */}
-      <div className="bg-[var(--surface)] p-4 rounded-[10px] border border-[var(--border)] space-y-3">
-        <div className="flex flex-col sm:flex-row gap-3">
-          <div className="relative flex-1">
-            <Search className="w-4 h-4 text-[var(--text-muted)] absolute left-3.5 top-1/2 -translate-y-1/2" />
+        ) : undefined
+      }
+      toolbar={
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="relative flex-1 max-w-sm">
+            <Search className="w-4 h-4 stroke-[1.5] text-[var(--text-muted)] absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
             <input
-              type="text"
+              type="search"
               value={query}
               onChange={e => {
                 setQuery(e.target.value);
+                setPage(1);
                 setSearchParams(e.target.value ? { q: e.target.value } : {});
               }}
-              placeholder="Ketik plat lama/baru (mis: B 128 XL), nama pemilik, atau telepon..."
-              className="w-full h-10 pl-10 pr-4 rounded-[6px] border border-[var(--border)] bg-[var(--surface)] text-sm focus:outline-none focus:ring-2 focus:ring-[#2c4f7c]"
+              placeholder="Cari plat aktif/lama (mis: B 128 XL)..."
+              className="w-full wc-input pl-9"
             />
           </div>
           <button
             type="button"
-            onClick={() => {
-              setQuery('B 128 XL');
-              setSearchParams({ q: 'B 128 XL' });
-            }}
-            className="px-3.5 py-2 rounded-[6px] border border-[#c9a227] bg-[#f6efd2] text-[#14243b] text-xs font-semibold hover:opacity-90 whitespace-nowrap"
+            onClick={() => navigate('/customers')}
+            className="wc-btn-secondary"
           >
-            Uji Demo Plat Lama: "B 128 XL"
+            <Users className="w-4 h-4 stroke-[1.5]" />
+            <span>Daftar Pelanggan</span>
           </button>
-          {query && (
-            <button
-              type="button"
-              onClick={() => {
-                setQuery('');
-                setSearchParams({});
-              }}
-              className="px-3 py-2 rounded-[6px] border border-[var(--border)] text-xs font-medium hover:bg-[var(--navy-50)]"
-            >
-              Reset
-            </button>
-          )}
         </div>
-      </div>
-
+      }
+    >
       {isLoading ? (
-        <div className="h-48 bg-[var(--surface)] rounded-[10px] border border-[var(--border)] animate-pulse" />
+        <TableSkeleton rows={5} />
+      ) : isError ? (
+        <ErrorCard onRetry={() => refetch()} />
       ) : vehicles.length === 0 ? (
         <EmptyState
           icon={Car}
-          message={`Tidak ditemukan kendaraan untuk pencarian "${query}".`}
-          actionLabel="Tampilkan Semua Kendaraan"
+          message={`Tidak ada kendaraan untuk pencarian "${query}".`}
+          actionLabel="Reset Pencarian"
           onAction={() => {
             setQuery('');
             setSearchParams({});
           }}
         />
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {vehicles.map((v: any) => {
-            const oldPlates = (v.plates || []).filter((p: any) => p.plate !== v.plate_current);
-            return (
-              <div
-                key={v.id}
-                className="bg-[var(--surface)] rounded-[10px] border border-[var(--border)] p-5 flex flex-col justify-between gap-4"
-              >
-                <div className="space-y-2.5">
-                  <div className="flex items-start justify-between gap-2">
-                    <div>
-                      <div className="inline-flex items-center gap-2">
-                        <span className="px-2.5 py-1 rounded bg-[#14243b] text-white font-mono font-bold text-sm tracking-wider">
-                          {v.plate_current}
-                        </span>
-                        <span className="text-sm font-semibold text-[var(--text)]">
-                          {v.brand} {v.model} ({v.year})
-                        </span>
-                      </div>
-                      {oldPlates.length > 0 && (
-                        <div className="mt-1.5 text-xs text-[#b36b00] bg-[#fdf1dc] px-2.5 py-1 rounded inline-block font-medium">
-                          Riwayat Plat Lama: {oldPlates.map((p: any) => `${p.plate} (${p.valid_from} s/d ${p.valid_to})`).join(', ')}
+        <div className="wc-card p-0 overflow-hidden">
+          {/* Desktop Table: maks 6 kolom */}
+          <div className="hidden md:block overflow-x-auto">
+            <table className="wc-table">
+              <thead>
+                <tr>
+                  <th>Kendaraan</th>
+                  <th>Plat Lama</th>
+                  <th>Pelanggan</th>
+                  <th className="text-right">Odometer</th>
+                  <th>Garansi</th>
+                  <th className="text-right">Aksi</th>
+                </tr>
+              </thead>
+              <tbody>
+                {pagedVehicles.map((v: any) => {
+                  const oldPlates = (v.plates || []).filter((p: any) => p.plate !== v.plate_current);
+                  return (
+                    <tr key={v.id}>
+                      <td>
+                        <div className="flex flex-col items-start gap-1">
+                          <PlateChip plate={v.plate_current} />
+                          <span className="text-[12px] leading-4 text-[var(--text-muted)]">
+                            {v.brand} {v.model} ({v.year})
+                          </span>
                         </div>
-                      )}
-                    </div>
-                    <span className="font-mono text-xs text-[var(--text-muted)] tabular-nums">
-                      {Number(v.odometer_last).toLocaleString('id-ID')} km
-                    </span>
-                  </div>
+                      </td>
+                      <td className="font-mono text-[12px] leading-4 text-[var(--text-muted)]">
+                        {oldPlates.length > 0 ? oldPlates.map((p: any) => p.plate).join(', ') : '-'}
+                      </td>
+                      <td>
+                        <div className="text-[14px] leading-5 text-[var(--text)]">{v.customer_name}</div>
+                        {canSeePhone && v.customer_phone && (
+                          <div className="font-mono text-[12px] leading-4 text-[var(--text-muted)]">
+                            {v.customer_phone}
+                          </div>
+                        )}
+                      </td>
+                      <td className="text-right font-mono text-[14px] leading-5 tabular-nums whitespace-nowrap">
+                        {Number(v.odometer_last).toLocaleString('id-ID')} km
+                      </td>
+                      <td>
+                        {v.active_warranties?.length > 0 ? (
+                          <StatusBadge status="GARANSI" kind="warranty" />
+                        ) : (
+                          <span className="text-[12px] leading-4 text-[var(--text-muted)]">-</span>
+                        )}
+                      </td>
+                      <td className="text-right">
+                        <div className="wc-row-action inline-flex items-center justify-end gap-2">
+                          <button
+                            type="button"
+                            onClick={() => setSelectedVehicleId(v.id)}
+                            className="wc-btn-secondary min-h-[32px] py-1 px-2.5 text-[12px]"
+                          >
+                            <History className="w-3.5 h-3.5 stroke-[1.5]" />
+                            <span>Riwayat</span>
+                          </button>
+                          {canWrite && (
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setChangePlateModal({ id: v.id, current: v.plate_current });
+                                  setNewPlateInput('');
+                                }}
+                                className="wc-btn-secondary min-h-[32px] py-1 px-2.5 text-[12px]"
+                              >
+                                <RefreshCw className="w-3.5 h-3.5 stroke-[1.5]" />
+                                <span>Ganti Plat</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => navigate(`/work-orders/new?vehicleId=${v.id}`)}
+                                className="wc-btn-primary min-h-[32px] py-1 px-2.5 text-[12px]"
+                              >
+                                <span>Terima</span>
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
 
-                  <div className="text-xs text-[var(--text-muted)] space-y-0.5 pt-1 border-t border-[var(--border)]">
-                    <div>
-                      Pemilik: <strong className="text-[var(--text)]">{v.customer_name}</strong> · {v.customer_phone}
-                    </div>
-                    <div>VIN: <span className="font-mono">{v.vin || '-'}</span></div>
-                  </div>
-
-                  {v.active_warranties?.length > 0 && (
-                    <div className="p-2.5 rounded-[6px] bg-[#e4f4ec] text-[#2e8b57] text-xs flex items-center gap-2">
-                      <ShieldCheck className="w-4 h-4 shrink-0" />
-                      <span>
-                        Garansi Aktif: {v.active_warranties.map((w: any) => `${w.component_key} (s/d ${formatDateId(w.end_date)})`).join(', ')}
-                      </span>
-                    </div>
-                  )}
+          {/* Mobile 2-Row Cards */}
+          <div className="md:hidden divide-y divide-[var(--border)]">
+            {pagedVehicles.map((v: any) => (
+              <div key={v.id} className="p-4 space-y-2">
+                <div className="flex items-center justify-between gap-2">
+                  <PlateChip plate={v.plate_current} />
+                  <span className="font-mono text-[12px] leading-4 text-[var(--text-muted)] tabular-nums">
+                    {Number(v.odometer_last).toLocaleString('id-ID')} km
+                  </span>
                 </div>
-
-                <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-[var(--border)]">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-[14px] leading-5 text-[var(--text)] truncate">
+                    {v.brand} {v.model} · {v.customer_name}
+                  </span>
                   <button
+                    type="button"
                     onClick={() => setSelectedVehicleId(v.id)}
-                    className="px-3 py-1.5 rounded-[6px] bg-[var(--navy-50)] hover:bg-[var(--navy-100)] text-[var(--text)] text-xs font-medium inline-flex items-center gap-1.5"
+                    className="text-[12px] leading-4 font-medium text-[var(--primary)] hover:underline shrink-0 cursor-pointer"
                   >
-                    <History className="w-3.5 h-3.5" />
-                    <span>Riwayat Servis & Garansi</span>
+                    Riwayat
                   </button>
-                  {canWrite && (
-                    <>
-                      <button
-                        onClick={() => {
-                          setChangePlateModal({ id: v.id, current: v.plate_current });
-                          setNewPlateInput('');
-                        }}
-                        className="px-3 py-1.5 rounded-[6px] border border-[var(--border)] hover:bg-[var(--navy-50)] text-xs font-medium inline-flex items-center gap-1.5"
-                      >
-                        <RefreshCw className="w-3.5 h-3.5" />
-                        <span>Ganti Nomor Polisi</span>
-                      </button>
-                      <button
-                        onClick={() => navigate(`/work-orders/new?vehicleId=${v.id}`)}
-                        className="ml-auto px-3 py-1.5 rounded-[6px] bg-[#1f3a5f] text-white text-xs font-medium hover:bg-[#2c4f7c]"
-                      >
-                        + Buat WO Servis
-                      </button>
-                    </>
-                  )}
                 </div>
               </div>
-            );
-          })}
+            ))}
+          </div>
+
+          <PaginationBar
+            page={page}
+            pageSize={pageSize}
+            totalItems={vehicles.length}
+            onPageChange={setPage}
+          />
         </div>
       )}
 
-      {/* Modal: Service History per Vehicle */}
+      {/* Modal: Riwayat Servis */}
       <Modal
         open={selectedVehicleId !== null}
         onClose={() => setSelectedVehicleId(null)}
-        title="Riwayat Servis, Komponen & Invoice Kendaraan"
-        maxWidth="max-w-3xl"
+        title="Riwayat Servis"
+        maxWidth="max-w-2xl"
       >
         {vehicleHistory.length === 0 ? (
-          <p className="text-sm text-[var(--text-muted)] py-6 text-center">Belum ada riwayat servis untuk kendaraan ini.</p>
+          <p className="text-[14px] leading-5 text-[var(--text-muted)] py-6 text-center">
+            Belum ada riwayat servis.
+          </p>
         ) : (
-          <div className="space-y-4">
+          <div className="divide-y divide-[var(--border)]">
             {vehicleHistory.map((wo: any) => (
-              <div key={wo.id} className="p-4 rounded-[8px] border border-[var(--border)] bg-[var(--navy-50)]/40 space-y-2">
-                <div className="flex flex-wrap items-center justify-between gap-2">
+              <div key={wo.id} className="py-3 first:pt-0 last:pb-0 flex items-center justify-between gap-4">
+                <div>
                   <div className="flex items-center gap-2">
-                    <span className="font-mono font-bold text-sm text-[#1f3a5f] dark:text-[#c9a227]">{wo.wo_number}</span>
+                    <span className="font-mono font-semibold text-[14px] leading-5 text-[var(--text)]">
+                      {wo.wo_number}
+                    </span>
                     <StatusBadge status={wo.status} kind="wo" />
-                    {wo.invoice_number && (
-                      <span className="font-mono text-xs text-[var(--text-muted)]">({wo.invoice_number})</span>
-                    )}
                   </div>
-                  <div className="text-xs text-[var(--text-muted)] tabular-nums">
-                    {formatDateId(wo.received_at)} · Odometer: {Number(wo.odometer_in).toLocaleString('id-ID')} km
+                  <div className="text-[12px] leading-4 text-[var(--text-muted)] mt-1">
+                    {formatDateId(wo.received_at)} · {Number(wo.odometer_in).toLocaleString('id-ID')} km
                   </div>
                 </div>
-
-                <div className="text-xs">
-                  <strong>Keluhan:</strong> {wo.issues?.map((i: any) => i.description).join('; ') || '-'}
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1 text-xs">
-                  <div>
-                    <span className="text-[var(--text-muted)] block mb-1">Pekerjaan & Teknisi:</span>
-                    <ul className="space-y-0.5">
-                      {wo.jobs?.map((j: any) => (
-                        <li key={j.id} className="flex justify-between">
-                          <span>• {j.job_name} ({j.technician_name || 'Belum ditugaskan'})</span>
-                          <span className="font-mono tabular-nums">{formatRupiah(j.rate_applied)}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                  <div>
-                    <span className="text-[var(--text-muted)] block mb-1">Spare Part Diganti:</span>
-                    {wo.parts?.length === 0 ? (
-                      <span className="text-[var(--text-muted)] italic">Tanpa penggantian part</span>
-                    ) : (
-                      <ul className="space-y-0.5">
-                        {wo.parts?.map((p: any) => (
-                          <li key={p.id} className="flex justify-between">
-                            <span>• {p.part_name} (x{p.qty - p.returned_qty})</span>
-                            <span className="font-mono tabular-nums">{formatRupiah((p.qty - p.returned_qty) * p.unit_price)}</span>
-                          </li>
-                        ))}
-                      </ul>
-                    )}
-                  </div>
-                </div>
-
-                <div className="pt-2 border-t border-[var(--border)] flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  {canSeeFinancials && (
+                    <span className="font-mono text-[14px] leading-5 font-medium tabular-nums">
+                      {formatRupiah(wo.invoice_total ?? wo.estimate_total)}
+                    </span>
+                  )}
                   <button
+                    type="button"
                     onClick={() => {
                       setSelectedVehicleId(null);
                       navigate(`/work-orders/${wo.id}`);
                     }}
-                    className="text-xs font-medium text-[#1f6fb2] hover:underline inline-flex items-center gap-1"
+                    className="wc-btn-secondary min-h-[36px]"
                   >
-                    <FileText className="w-3.5 h-3.5" /> Buka Detail WO
+                    <span>Buka</span>
                   </button>
-                  <span className="text-xs font-bold tabular-nums">
-                    Total: {formatRupiah(wo.invoice_total ?? wo.estimate_total)}
-                  </span>
                 </div>
               </div>
             ))}
@@ -330,11 +335,11 @@ export const VehiclesPage: React.FC = () => {
         )}
       </Modal>
 
-      {/* Modal: Change Plate (BR-01) */}
+      {/* Modal: Ganti Plat */}
       <Modal
         open={changePlateModal !== null}
         onClose={() => setChangePlateModal(null)}
-        title={`Ganti Nomor Polisi (${changePlateModal?.current})`}
+        title={`Ganti Plat (${changePlateModal?.current})`}
       >
         <form
           onSubmit={e => {
@@ -344,54 +349,47 @@ export const VehiclesPage: React.FC = () => {
           }}
           className="space-y-4"
         >
-          <p className="text-xs text-[var(--text-muted)]">
-            Sesuai aturan <strong>BR-01</strong>, nomor polisi lama akan tetap tersimpan di riwayat kendaraan sehingga pencarian menggunakan plat lama maupun baru tetap menemukan kendaraan ini.
-          </p>
           <div>
-            <label className="block text-xs font-medium mb-1">Nomor Polisi Baru</label>
+            <label className="block text-[12px] leading-4 font-medium text-[var(--text)] mb-1.5">
+              Plat nomor baru *
+            </label>
             <input
               type="text"
               required
               value={newPlateInput}
               onChange={e => setNewPlateInput(e.target.value.toUpperCase())}
-              placeholder="Contoh: B 99 UK"
-              className="w-full h-10 px-3 rounded-[6px] border border-[var(--border)] font-mono uppercase text-sm"
+              placeholder="B 99 UK"
+              className="w-full wc-input font-mono"
             />
           </div>
           <div className="flex justify-end gap-2">
-            <button
-              type="button"
-              onClick={() => setChangePlateModal(null)}
-              className="px-4 py-2 rounded-[6px] border border-[var(--border)] text-xs font-medium"
-            >
+            <button type="button" onClick={() => setChangePlateModal(null)} className="wc-btn-secondary">
               Batal
             </button>
-            <button
-              type="submit"
-              disabled={changePlateMutation.isPending}
-              className="px-4 py-2 rounded-[6px] bg-[#1f3a5f] text-white text-xs font-semibold"
-            >
-              Simpan Perubahan Plat
+            <button type="submit" disabled={changePlateMutation.isPending} className="wc-btn-primary">
+              Simpan
             </button>
           </div>
         </form>
       </Modal>
 
-      {/* Modal: Add Vehicle */}
-      <Modal open={addVehicleModal} onClose={() => setAddVehicleModal(false)} title="Tambah Kendaraan Baru">
+      {/* Modal: Tambah Kendaraan */}
+      <Modal open={addVehicleModal} onClose={() => setAddVehicleModal(false)} title="Tambah Kendaraan">
         <form
           onSubmit={e => {
             e.preventDefault();
             createVehicleMutation.mutate(newVehForm);
           }}
-          className="space-y-3.5"
+          className="space-y-4"
         >
           <div>
-            <label className="block text-xs font-medium mb-1">Pemilik (Pelanggan)</label>
+            <label className="block text-[12px] leading-4 font-medium text-[var(--text)] mb-1.5">
+              Pelanggan *
+            </label>
             <select
               value={newVehForm.customerId}
               onChange={e => setNewVehForm(f => ({ ...f, customerId: Number(e.target.value) }))}
-              className="w-full h-10 px-3 rounded-[6px] border border-[var(--border)] bg-[var(--surface)] text-sm"
+              className="w-full wc-input"
             >
               {customers.map((c: any) => (
                 <option key={c.id} value={c.id}>
@@ -400,24 +398,28 @@ export const VehiclesPage: React.FC = () => {
               ))}
             </select>
           </div>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
-              <label className="block text-xs font-medium mb-1">Nomor Polisi</label>
+              <label className="block text-[12px] leading-4 font-medium text-[var(--text)] mb-1.5">
+                Plat nomor *
+              </label>
               <input
                 type="text"
                 required
                 value={newVehForm.plate}
                 onChange={e => setNewVehForm(f => ({ ...f, plate: e.target.value.toUpperCase() }))}
                 placeholder="B 888 JAG"
-                className="w-full h-10 px-3 rounded-[6px] border border-[var(--border)] font-mono uppercase text-sm"
+                className="w-full wc-input font-mono"
               />
             </div>
             <div>
-              <label className="block text-xs font-medium mb-1">Merek Mobil Inggris</label>
+              <label className="block text-[12px] leading-4 font-medium text-[var(--text)] mb-1.5">
+                Merek *
+              </label>
               <select
                 value={newVehForm.brand}
                 onChange={e => setNewVehForm(f => ({ ...f, brand: e.target.value }))}
-                className="w-full h-10 px-3 rounded-[6px] border border-[var(--border)] bg-[var(--surface)] text-sm"
+                className="w-full wc-input"
               >
                 <option value="Jaguar">Jaguar</option>
                 <option value="Land Rover">Land Rover</option>
@@ -425,71 +427,66 @@ export const VehiclesPage: React.FC = () => {
                 <option value="Rolls-Royce">Rolls-Royce</option>
               </select>
             </div>
-          </div>
-          <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs font-medium mb-1">Model</label>
+              <label className="block text-[12px] leading-4 font-medium text-[var(--text)] mb-1.5">
+                Model *
+              </label>
               <input
                 type="text"
                 required
                 value={newVehForm.model}
                 onChange={e => setNewVehForm(f => ({ ...f, model: e.target.value }))}
-                placeholder="XF / Defender 110 / Ghost"
-                className="w-full h-10 px-3 rounded-[6px] border border-[var(--border)] text-sm"
+                placeholder="Defender 110"
+                className="w-full wc-input"
               />
             </div>
             <div>
-              <label className="block text-xs font-medium mb-1">Tahun</label>
+              <label className="block text-[12px] leading-4 font-medium text-[var(--text)] mb-1.5">
+                Tahun *
+              </label>
               <input
                 type="number"
                 required
                 value={newVehForm.year}
                 onChange={e => setNewVehForm(f => ({ ...f, year: Number(e.target.value) }))}
-                className="w-full h-10 px-3 rounded-[6px] border border-[var(--border)] text-sm tabular-nums"
+                className="w-full wc-input font-mono tabular-nums"
               />
             </div>
-          </div>
-          <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs font-medium mb-1">Nomor Rangka (VIN)</label>
+              <label className="block text-[12px] leading-4 font-medium text-[var(--text)] mb-1.5">
+                Nomor rangka (VIN)
+              </label>
               <input
                 type="text"
                 value={newVehForm.vin}
                 onChange={e => setNewVehForm(f => ({ ...f, vin: e.target.value.toUpperCase() }))}
-                placeholder="SAJAA..."
-                className="w-full h-10 px-3 rounded-[6px] border border-[var(--border)] font-mono text-sm"
+                className="w-full wc-input font-mono"
               />
             </div>
             <div>
-              <label className="block text-xs font-medium mb-1">Odometer Awal (KM)</label>
+              <label className="block text-[12px] leading-4 font-medium text-[var(--text)] mb-1.5">
+                Odometer awal (km) *
+              </label>
               <input
                 type="number"
                 required
                 value={newVehForm.odometerLast}
                 onChange={e => setNewVehForm(f => ({ ...f, odometerLast: Number(e.target.value) }))}
-                className="w-full h-10 px-3 rounded-[6px] border border-[var(--border)] text-sm tabular-nums"
+                className="w-full wc-input font-mono tabular-nums"
               />
             </div>
           </div>
           <div className="flex justify-end gap-2 pt-2">
-            <button
-              type="button"
-              onClick={() => setAddVehicleModal(false)}
-              className="px-4 py-2 rounded-[6px] border border-[var(--border)] text-xs font-medium"
-            >
+            <button type="button" onClick={() => setAddVehicleModal(false)} className="wc-btn-secondary">
               Batal
             </button>
-            <button
-              type="submit"
-              disabled={createVehicleMutation.isPending}
-              className="px-4 py-2 rounded-[6px] bg-[#1f3a5f] text-white text-xs font-semibold"
-            >
-              Simpan Kendaraan
+            <button type="submit" disabled={createVehicleMutation.isPending} className="wc-btn-primary">
+              Simpan
             </button>
           </div>
         </form>
       </Modal>
-    </div>
+    </PageLayout>
   );
 };
 
@@ -497,10 +494,16 @@ export const CustomersPage: React.FC = () => {
   const { user, showToast } = useAuth();
   const queryClient = useQueryClient();
   const [q, setQ] = useState('');
+  const [page, setPage] = useState(1);
   const [modalOpen, setModalOpen] = useState(false);
   const [form, setForm] = useState({ name: '', phone: '', email: '', address: '' });
 
-  const { data: customers = [] } = useQuery<any[]>({
+  const {
+    data: customers = [],
+    isLoading,
+    isError,
+    refetch,
+  } = useQuery<any[]>({
     queryKey: ['customers', q],
     queryFn: () => apiFetch(`/customers?q=${encodeURIComponent(q)}`),
   });
@@ -509,7 +512,7 @@ export const CustomersPage: React.FC = () => {
     mutationFn: (payload: typeof form) =>
       apiFetch('/customers', { method: 'POST', body: JSON.stringify(payload) }),
     onSuccess: () => {
-      showToast('Data pelanggan berhasil disimpan', 'success');
+      showToast('Pelanggan disimpan', 'success');
       setModalOpen(false);
       setForm({ name: '', phone: '', email: '', address: '' });
       queryClient.invalidateQueries({ queryKey: ['customers'] });
@@ -518,147 +521,169 @@ export const CustomersPage: React.FC = () => {
   });
 
   const canWrite = user?.role === 'SA' || user?.role === 'AD';
+  const canSeePhone = user?.role === 'PM' || user?.role === 'AD' || user?.role === 'SA';
+
+  const pageSize = 20;
+  const pagedCustomers = customers.slice((page - 1) * pageSize, page * pageSize);
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-xl sm:text-2xl font-bold">Data Pelanggan</h1>
-          <p className="text-xs sm:text-sm text-[var(--text-muted)]">
-            Daftar pemilik kendaraan yang terdaftar di Bengkel Brit Auto.
-          </p>
-        </div>
-        {canWrite && (
-          <button
-            onClick={() => setModalOpen(true)}
-            className="inline-flex items-center gap-2 px-4 py-2 rounded-[6px] bg-[#1f3a5f] text-white text-sm font-medium hover:bg-[#2c4f7c]"
-          >
-            <UserPlus className="w-4 h-4" />
-            <span>+ Tambah Pelanggan</span>
+    <PageLayout
+      title="Pelanggan"
+      primaryAction={
+        canWrite ? (
+          <button type="button" onClick={() => setModalOpen(true)} className="wc-btn-primary">
+            <UserPlus className="w-5 h-5 stroke-[1.5]" aria-hidden="true" />
+            <span>Tambah Pelanggan</span>
           </button>
-        )}
-      </div>
-
-      <div className="bg-[var(--surface)] p-4 rounded-[10px] border border-[var(--border)]">
-        <div className="relative">
-          <Search className="w-4 h-4 text-[var(--text-muted)] absolute left-3.5 top-1/2 -translate-y-1/2" />
+        ) : undefined
+      }
+      toolbar={
+        <div className="relative max-w-sm">
+          <Search className="w-4 h-4 stroke-[1.5] text-[var(--text-muted)] absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
           <input
-            type="text"
+            type="search"
             value={q}
-            onChange={e => setQ(e.target.value)}
-            placeholder="Cari nama pelanggan, telepon, atau email..."
-            className="w-full h-10 pl-10 pr-4 rounded-[6px] border border-[var(--border)] text-sm"
+            onChange={e => {
+              setQ(e.target.value);
+              setPage(1);
+            }}
+            placeholder="Cari nama atau telepon..."
+            className="w-full wc-input pl-9"
           />
         </div>
-      </div>
-
-      <div className="bg-[var(--surface)] rounded-[10px] border border-[var(--border)] overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse">
-            <thead>
-              <tr className="bg-[var(--navy-50)] text-[var(--text-muted)] text-xs uppercase">
-                <th scope="col" className="py-3 px-4 font-semibold">Nama Pelanggan</th>
-                <th scope="col" className="py-3 px-4 font-semibold">Telepon</th>
-                <th scope="col" className="py-3 px-4 font-semibold">Email</th>
-                <th scope="col" className="py-3 px-4 font-semibold">Alamat</th>
-                <th scope="col" className="py-3 px-4 font-semibold text-right">Jumlah Mobil</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-[var(--border)] text-sm">
-              {customers.map((c: any) => (
-                <tr key={c.id} className="hover:bg-[var(--navy-50)]">
-                  <td className="py-3 px-4 font-semibold">{c.name}</td>
-                  <td className="py-3 px-4 font-mono text-xs">
-                    <span className="inline-flex items-center gap-1">
-                      <Phone className="w-3.5 h-3.5 text-[var(--text-muted)]" /> {c.phone}
-                    </span>
-                  </td>
-                  <td className="py-3 px-4 text-xs">
-                    {c.email ? (
-                      <span className="inline-flex items-center gap-1">
-                        <Mail className="w-3.5 h-3.5 text-[var(--text-muted)]" /> {c.email}
-                      </span>
-                    ) : (
-                      '-'
-                    )}
-                  </td>
-                  <td className="py-3 px-4 text-xs text-[var(--text-muted)] max-w-xs truncate">
-                    <span className="inline-flex items-center gap-1">
-                      <MapPin className="w-3.5 h-3.5 shrink-0" /> {c.address || '-'}
-                    </span>
-                  </td>
-                  <td className="py-3 px-4 text-right font-mono tabular-nums font-semibold">{c.vehicle_count}</td>
+      }
+    >
+      {isLoading ? (
+        <TableSkeleton rows={5} />
+      ) : isError ? (
+        <ErrorCard onRetry={() => refetch()} />
+      ) : customers.length === 0 ? (
+        <EmptyState
+          icon={Users}
+          message="Tidak ada pelanggan ditemukan."
+          actionLabel={canWrite ? 'Tambah Pelanggan' : undefined}
+          onAction={canWrite ? () => setModalOpen(true) : undefined}
+        />
+      ) : (
+        <div className="wc-card p-0 overflow-hidden">
+          <div className="hidden md:block overflow-x-auto">
+            <table className="wc-table">
+              <thead>
+                <tr>
+                  <th>Nama</th>
+                  {canSeePhone && <th>Telepon</th>}
+                  <th>Email</th>
+                  <th>Alamat</th>
+                  <th className="text-right">Mobil</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
+              </thead>
+              <tbody>
+                {pagedCustomers.map((c: any) => (
+                  <tr key={c.id}>
+                    <td className="font-medium text-[var(--text)]">{c.name}</td>
+                    {canSeePhone && (
+                      <td className="font-mono text-[14px] leading-5 tabular-nums">{c.phone}</td>
+                    )}
+                    <td className="text-[14px] leading-5 text-[var(--text-muted)]">{c.email || '-'}</td>
+                    <td className="text-[14px] leading-5 text-[var(--text-muted)] max-w-xs truncate">
+                      {c.address || '-'}
+                    </td>
+                    <td className="text-right font-mono tabular-nums">{c.vehicle_count}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
 
-      <Modal open={modalOpen} onClose={() => setModalOpen(false)} title="Tambah Pelanggan Baru">
+          <div className="md:hidden divide-y divide-[var(--border)]">
+            {pagedCustomers.map((c: any) => (
+              <div key={c.id} className="p-4 space-y-1">
+                <div className="flex items-center justify-between">
+                  <span className="font-semibold text-[14px] leading-5 text-[var(--text)]">{c.name}</span>
+                  <span className="font-mono text-[12px] leading-4 text-[var(--text-muted)]">
+                    {c.vehicle_count} mobil
+                  </span>
+                </div>
+                {canSeePhone && (
+                  <div className="font-mono text-[12px] leading-4 text-[var(--text-muted)]">{c.phone}</div>
+                )}
+              </div>
+            ))}
+          </div>
+
+          <PaginationBar
+            page={page}
+            pageSize={pageSize}
+            totalItems={customers.length}
+            onPageChange={setPage}
+          />
+        </div>
+      )}
+
+      <Modal open={modalOpen} onClose={() => setModalOpen(false)} title="Tambah Pelanggan">
         <form
           onSubmit={e => {
             e.preventDefault();
             createMutation.mutate(form);
           }}
-          className="space-y-3.5"
+          className="space-y-4"
         >
           <div>
-            <label className="block text-xs font-medium mb-1">Nama Lengkap</label>
+            <label className="block text-[12px] leading-4 font-medium text-[var(--text)] mb-1.5">
+              Nama lengkap *
+            </label>
             <input
               type="text"
               required
               value={form.name}
               onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
-              className="w-full h-10 px-3 rounded-[6px] border border-[var(--border)] text-sm"
+              className="w-full wc-input"
             />
           </div>
           <div>
-            <label className="block text-xs font-medium mb-1">Nomor Telepon / WhatsApp</label>
+            <label className="block text-[12px] leading-4 font-medium text-[var(--text)] mb-1.5">
+              Telepon *
+            </label>
             <input
               type="text"
               required
               value={form.phone}
               onChange={e => setForm(f => ({ ...f, phone: e.target.value }))}
-              className="w-full h-10 px-3 rounded-[6px] border border-[var(--border)] text-sm font-mono"
+              className="w-full wc-input font-mono tabular-nums"
             />
           </div>
           <div>
-            <label className="block text-xs font-medium mb-1">Email</label>
+            <label className="block text-[12px] leading-4 font-medium text-[var(--text)] mb-1.5">
+              Email
+            </label>
             <input
               type="email"
               value={form.email}
               onChange={e => setForm(f => ({ ...f, email: e.target.value }))}
-              className="w-full h-10 px-3 rounded-[6px] border border-[var(--border)] text-sm"
+              className="w-full wc-input"
             />
           </div>
           <div>
-            <label className="block text-xs font-medium mb-1">Alamat</label>
+            <label className="block text-[12px] leading-4 font-medium text-[var(--text)] mb-1.5">
+              Alamat
+            </label>
             <textarea
               rows={2}
               value={form.address}
               onChange={e => setForm(f => ({ ...f, address: e.target.value }))}
-              className="w-full p-3 rounded-[6px] border border-[var(--border)] text-sm"
+              className="w-full p-3 rounded-[8px] border border-[var(--border-strong)] bg-[var(--surface)] text-[14px] leading-5"
             />
           </div>
           <div className="flex justify-end gap-2 pt-2">
-            <button
-              type="button"
-              onClick={() => setModalOpen(false)}
-              className="px-4 py-2 rounded-[6px] border border-[var(--border)] text-xs font-medium"
-            >
+            <button type="button" onClick={() => setModalOpen(false)} className="wc-btn-secondary">
               Batal
             </button>
-            <button
-              type="submit"
-              disabled={createMutation.isPending}
-              className="px-4 py-2 rounded-[6px] bg-[#1f3a5f] text-white text-xs font-semibold"
-            >
-              Simpan Pelanggan
+            <button type="submit" disabled={createMutation.isPending} className="wc-btn-primary">
+              Simpan
             </button>
           </div>
         </form>
       </Modal>
-    </div>
+    </PageLayout>
   );
 };

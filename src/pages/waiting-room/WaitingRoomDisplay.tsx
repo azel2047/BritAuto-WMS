@@ -1,127 +1,143 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { Clock, Wrench, CheckCircle2, ClipboardCheck, ArrowLeft } from 'lucide-react';
+import { ArrowLeft } from 'lucide-react';
 import { apiFetch } from '../../lib/api';
 import { useRealtimeSse } from '../../lib/sse';
 import { formatDateTimeId } from '../../lib/format';
 import { BritLogo } from '../../components/domain/BritLogo';
 
+const PROGRESS_LABELS = ['Diterima', 'Dikerjakan', 'Diperiksa', 'Siap'];
+
+function getProgressIndex(status: string): number {
+  if (status === 'DIPERIKSA' || status === 'DITUTUP') return 3;
+  if (status === 'SELESAI_DIKERJAKAN') return 2;
+  if (status === 'DIKERJAKAN') return 1;
+  return 0;
+}
+
+/**
+ * LAYAR RUANG TUNGGU (publik, TV):
+ * Latar #14243B, tanpa menu/sidebar, teks #F3F6FA, min 28px.
+ * Grid kartu: plat tersamar (mono, 32px), model 20px, status 28px dengan 4 titik progres.
+ * Tanpa nama/telepon. Auto-refresh.
+ */
 export const WaitingRoomDisplayPage: React.FC = () => {
   const { lastUpdatedId } = useRealtimeSse();
 
   const { data } = useQuery<{ updatedAt: string; items: any[] }>({
     queryKey: ['waiting-room'],
     queryFn: () => apiFetch('/public/waiting-room'),
-    refetchInterval: 5000, // Fallback polling 5s in addition to SSE
+    refetchInterval: 5000,
   });
 
   const items = data?.items || [];
 
   return (
-    <div className="min-h-screen bg-[#14243b] text-white p-6 sm:p-10 flex flex-col justify-between">
-      <div>
-        {/* Top Header */}
-        <header className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-6 border-b border-white/15">
+    <div className="min-h-screen bg-[#14243B] text-[#F3F6FA] p-6 sm:p-8 flex flex-col justify-between">
+      <div className="max-w-[1360px] w-full mx-auto space-y-8">
+        <header className="flex flex-wrap items-center justify-between gap-4 pb-6 border-b border-white/15">
           <div className="flex items-center gap-4">
-            <BritLogo size={56} showText={false} />
-            <div>
-              <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-white">
-                STATUS SERVIS KENDARAAN — RUANG TUNGGU PELANGGAN
-              </h1>
-              <p className="text-sm text-[#c9a227] font-medium">
-                Bengkel Brit Auto · Spesialis Jaguar, Land Rover, Bentley, Rolls-Royce
-              </p>
-            </div>
+            <BritLogo size={40} showText={false} inverted />
+            <h1 className="text-[28px] sm:text-[32px] leading-[40px] font-semibold text-[#F3F6FA]">
+              Status Kendaraan
+            </h1>
           </div>
 
           <div className="flex items-center gap-4">
-            <div className="text-right">
-              <div className="text-xs text-white/60">Pembaruan Otomatis (Real-time)</div>
-              <div className="text-sm font-mono text-white/90 tabular-nums">
-                {data?.updatedAt ? formatDateTimeId(data.updatedAt) : '-'}
-              </div>
-            </div>
+            <span className="font-mono text-[16px] leading-6 text-[#F3F6FA]/80 tabular-nums">
+              {data?.updatedAt ? formatDateTimeId(data.updatedAt) : '-'}
+            </span>
             <Link
               to="/"
-              className="px-3.5 py-2 rounded-[6px] bg-white/10 hover:bg-white/20 text-xs font-medium text-white inline-flex items-center gap-1.5"
+              className="inline-flex items-center gap-2 min-h-[44px] px-4 py-2 rounded-[8px] border border-white/25 text-[14px] leading-5 font-medium text-[#F3F6FA] hover:bg-white/10"
             >
-              <ArrowLeft className="w-3.5 h-3.5" /> Portal Staf
+              <ArrowLeft className="w-5 h-5 stroke-[1.5]" aria-hidden="true" />
+              <span>Kembali</span>
             </Link>
           </div>
         </header>
 
-        {/* Vehicle Cards Grid (Large Typography >=28px for Plate, Zero Personal Data) */}
-        <div className="mt-8 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
-          {items.map(item => {
-            const isHighlighted = lastUpdatedId === item.id;
-            const isWorking = item.status === 'DIKERJAKAN';
-            const isReady = item.status === 'DIPERIKSA';
-            const isReview = item.status === 'SELESAI_DIKERJAKAN';
-
-            return (
-              <div
-                key={item.id}
-                className={`rounded-[12px] p-6 border transition-all ${
-                  isHighlighted
-                    ? 'bg-[#3a3217] border-[#c9a227] ring-2 ring-[#c9a227]'
-                    : 'bg-[#1f3a5f] border-white/15'
-                }`}
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <div className="font-mono text-3xl sm:text-4xl font-bold tracking-wider text-white tabular-nums">
-                      {item.plateMasked}
+        {items.length === 0 ? (
+          <div className="py-16 text-[28px] leading-9 text-[#F3F6FA]/80">
+            Belum ada antrean servis aktif.
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+            {items.map(item => {
+              const stepIdx = getProgressIndex(item.status);
+              const isHighlighted = lastUpdatedId === item.id;
+              return (
+                <div
+                  key={item.id}
+                  className={`rounded-[12px] bg-[#1F3A5F] p-6 border transition-colors flex flex-col justify-between gap-6 ${
+                    isHighlighted ? 'border-[#C9A227]' : 'border-white/15'
+                  }`}
+                >
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="font-mono text-[32px] leading-[40px] font-semibold text-[#F3F6FA] tabular-nums">
+                        {item.plateMasked}
+                      </span>
+                      <span className="font-mono text-[14px] leading-5 text-[#F3F6FA]/70 tabular-nums">
+                        {item.woNumber}
+                      </span>
                     </div>
-                    <div className="text-lg font-medium text-white/85 mt-1">
+                    <div className="text-[20px] leading-7 font-medium text-[#F3F6FA]/85">
                       {item.brand} {item.model} ({item.year})
                     </div>
                   </div>
-                  <span className="font-mono text-xs text-white/60 bg-[#14243b]/60 px-2.5 py-1 rounded">
-                    {item.woNumber}
-                  </span>
-                </div>
 
-                <div className="mt-6 pt-4 border-t border-white/10 flex items-center justify-between gap-3">
-                  <div
-                    className={`inline-flex items-center gap-2 px-3.5 py-2 rounded-[8px] text-base font-bold ${
-                      isReady
-                        ? 'bg-[#e4f4ec] text-[#2e8b57]'
-                        : isReview
-                        ? 'bg-[#f6efd2] text-[#14243b]'
-                        : isWorking
-                        ? 'bg-[#e2eefa] text-[#1f6fb2]'
-                        : 'bg-[#fdf1dc] text-[#b36b00]'
-                    }`}
-                  >
-                    {isReady ? (
-                      <CheckCircle2 className="w-5 h-5" />
-                    ) : isReview ? (
-                      <ClipboardCheck className="w-5 h-5" />
-                    ) : isWorking ? (
-                      <Wrench className="w-5 h-5" />
-                    ) : (
-                      <Clock className="w-5 h-5" />
-                    )}
-                    <span>{item.friendlyStatus}</span>
-                  </div>
-
-                  <div className="text-right text-xs text-white/75 font-mono tabular-nums">
-                    <div>
-                      Pekerjaan: {item.doneJobs}/{item.totalJobs}
+                  <div className="space-y-4 pt-4 border-t border-white/15">
+                    <div className="text-[28px] leading-9 font-semibold text-[#F3F6FA]">
+                      {PROGRESS_LABELS[stepIdx]}
                     </div>
-                    <div className="mt-0.5">Masuk: {formatDateTimeId(item.receivedAt)}</div>
+
+                    {/* 4 Titik Progres */}
+                    <div className="grid grid-cols-4 gap-2" aria-label={`Tahap ${stepIdx + 1} dari 4`}>
+                      {PROGRESS_LABELS.map((lbl, idx) => {
+                        const active = idx <= stepIdx;
+                        const current = idx === stepIdx;
+                        return (
+                          <div key={lbl} className="space-y-1.5">
+                            <div className="flex items-center gap-1.5">
+                              <span
+                                className={`w-3 h-3 rounded-full shrink-0 ${
+                                  current
+                                    ? 'bg-[#C9A227]'
+                                    : active
+                                    ? 'bg-[#F3F6FA]'
+                                    : 'bg-white/20'
+                                }`}
+                              />
+                              <div
+                                className={`h-1 flex-1 rounded ${
+                                  active ? 'bg-[#C9A227]' : 'bg-white/15'
+                                }`}
+                              />
+                            </div>
+                            <div
+                              className={`text-[12px] leading-4 ${
+                                active ? 'text-[#F3F6FA] font-medium' : 'text-[#F3F6FA]/50'
+                              }`}
+                            >
+                              {lbl}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
                   </div>
                 </div>
-              </div>
-            );
-          })}
-        </div>
+              );
+            })}
+          </div>
+        )}
       </div>
 
-      <footer className="mt-10 pt-4 border-t border-white/10 flex flex-col sm:flex-row items-center justify-between text-xs text-white/60 gap-2">
-        <span>Demi perlindungan data pribadi (UU PDP No. 27/2022), nomor polisi disamarkan dan nama pelanggan tidak ditampilkan.</span>
-        <span>Bengkel Brit Auto — Layanan Premium Kendaraan Inggris</span>
+      <footer className="max-w-[1360px] w-full mx-auto mt-8 pt-4 border-t border-white/15 text-[14px] leading-5 text-[#F3F6FA]/70 flex flex-wrap justify-between gap-2">
+        <span>Nomor polisi disamarkan demi privasi pelanggan.</span>
+        <span>Brit Auto</span>
       </footer>
     </div>
   );

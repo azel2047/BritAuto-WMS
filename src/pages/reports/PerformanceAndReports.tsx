@@ -1,30 +1,28 @@
 import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
-  BellRing,
   RefreshCw,
   PhoneCall,
   Award,
   Settings,
   Download,
-  TrendingUp,
   CheckCircle2,
   XCircle,
+  Clock,
+  BellRing,
+  TrendingUp,
 } from 'lucide-react';
-import {
-  ResponsiveContainer,
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  Tooltip,
-  CartesianGrid,
-  Legend,
-} from 'recharts';
 import { apiFetch, getStoredToken } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
 import { formatRupiah, formatDateId } from '../../lib/format';
-import { Modal } from '../../components/ui/Modal';
+import { PageLayout } from '../../components/layout/PageLayout';
+import { PlateChip } from '../../components/domain/StatusBadge';
+import {
+  Modal,
+  EmptyState,
+  TableSkeleton,
+  ErrorCard,
+} from '../../components/ui/Modal';
 
 export const RemindersPage: React.FC = () => {
   const { user, showToast } = useAuth();
@@ -32,11 +30,16 @@ export const RemindersPage: React.FC = () => {
   const [followupModal, setFollowupModal] = useState<any | null>(null);
   const [followupForm, setFollowupForm] = useState({
     status: 'CONTACTED' as 'CONTACTED' | 'SKIPPED',
-    result: 'Pelanggan sudah dihubungi via WhatsApp dan menjadwalkan servis minggu depan',
+    result: 'Pelanggan dihubungi dan menjadwalkan kunjungan minggu depan',
     scheduledVisitDate: '2026-11-09',
   });
 
-  const { data: reminders = [] } = useQuery<any[]>({
+  const {
+    data: reminders = [],
+    isLoading,
+    isError,
+    refetch,
+  } = useQuery<any[]>({
     queryKey: ['reminders'],
     queryFn: () => apiFetch('/reminders/due'),
   });
@@ -46,8 +49,8 @@ export const RemindersPage: React.FC = () => {
     onSuccess: (res: any) => {
       showToast(
         res.newlyCreated > 0
-          ? `Perhitungan selesai: ${res.newlyCreated} reminder baru ditambahkan`
-          : 'Semua kendaraan telah diperiksa terhadap interval bulan & odometer (BR-10)',
+          ? `${res.newlyCreated} pengingat baru ditambahkan`
+          : 'Pengingat diperbarui',
         'success'
       );
       queryClient.invalidateQueries({ queryKey: ['reminders'] });
@@ -62,7 +65,7 @@ export const RemindersPage: React.FC = () => {
         body: JSON.stringify(followupForm),
       }),
     onSuccess: () => {
-      showToast('Status follow-up service reminder berhasil disimpan', 'success');
+      showToast('Tindak lanjut disimpan', 'success');
       setFollowupModal(null);
       queryClient.invalidateQueries({ queryKey: ['reminders'] });
       queryClient.invalidateQueries({ queryKey: ['dashboard'] });
@@ -73,89 +76,132 @@ export const RemindersPage: React.FC = () => {
   const canFollowup = user?.role === 'SA' || user?.role === 'AD';
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-xl sm:text-2xl font-bold">Service Reminder Berkala (BR-10)</h1>
-          <p className="text-xs sm:text-sm text-[var(--text-muted)]">
-            Dihitung otomatis menurut interval bulan (6 bln) ATAU kilometer (10.000 km), mana yang tercapai lebih dulu.
-          </p>
-        </div>
+    <PageLayout
+      title="Pengingat Servis"
+      primaryAction={
         <button
+          type="button"
           onClick={() => calcMutation.mutate()}
           disabled={calcMutation.isPending}
-          className="inline-flex items-center gap-2 px-4 py-2 rounded-[6px] bg-[#1f3a5f] text-white text-xs sm:text-sm font-semibold hover:bg-[#2c4f7c] self-start"
+          className="wc-btn-primary"
         >
-          <RefreshCw className={`w-4 h-4 ${calcMutation.isPending ? 'animate-spin' : ''}`} />
-          <span>Hitung Reminder Sekarang</span>
+          <RefreshCw className={`w-5 h-5 stroke-[1.5] ${calcMutation.isPending ? 'animate-spin' : ''}`} />
+          <span>Hitung Ulang</span>
         </button>
-      </div>
-
-      <div className="bg-[var(--surface)] rounded-[10px] border border-[var(--border)] overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse">
-            <thead>
-              <tr className="bg-[var(--navy-50)] text-[var(--text-muted)] text-xs uppercase">
-                <th className="py-3 px-4 font-semibold">Kendaraan</th>
-                <th className="py-3 px-4 font-semibold">Pelanggan & Telepon</th>
-                <th className="py-3 px-4 font-semibold">Alasan Jatuh Tempo</th>
-                <th className="py-3 px-4 font-semibold">Status Follow-up</th>
-                <th className="py-3 px-4 font-semibold">Hasil / Jadwal</th>
-                {canFollowup && <th className="py-3 px-4 font-semibold text-right">Aksi</th>}
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-[var(--border)] text-sm">
-              {reminders.map((r: any) => (
-                <tr key={r.id} className="hover:bg-[var(--navy-50)]">
-                  <td className="py-3 px-4">
-                    <div className="font-mono font-bold">{r.plate_current}</div>
-                    <div className="text-xs text-[var(--text-muted)]">
-                      {r.brand} {r.model} · {Number(r.odometer_last).toLocaleString('id-ID')} km
-                    </div>
-                  </td>
-                  <td className="py-3 px-4">
-                    <div className="font-medium">{r.customer_name}</div>
-                    <div className="text-xs font-mono text-[var(--text-muted)]">{r.customer_phone}</div>
-                  </td>
-                  <td className="py-3 px-4 text-xs">{r.reason || `Jatuh tempo ${formatDateId(r.due_date)}`}</td>
-                  <td className="py-3 px-4">
-                    <span
-                      className={`px-2.5 py-1 rounded text-xs font-semibold ${
-                        r.status === 'CONTACTED'
-                          ? 'bg-[#e4f4ec] text-[#2e8b57]'
-                          : r.status === 'SKIPPED'
-                          ? 'bg-[#f3f6fa] text-[#5b6b82]'
-                          : 'bg-[#fdf1dc] text-[#b36b00]'
-                      }`}
-                    >
-                      {r.status}
-                    </span>
-                  </td>
-                  <td className="py-3 px-4 text-xs text-[var(--text-muted)]">
-                    {r.result || '-'}
-                    {r.scheduled_visit_date ? ` (Kunjungan: ${formatDateId(r.scheduled_visit_date)})` : ''}
-                  </td>
-                  {canFollowup && (
-                    <td className="py-3 px-4 text-right">
-                      <button
-                        onClick={() => setFollowupModal(r)}
-                        className="px-3 py-1.5 rounded bg-[#1f3a5f] text-white text-xs font-medium inline-flex items-center gap-1"
-                      >
-                        <PhoneCall className="w-3.5 h-3.5" /> Catat Follow-up
-                      </button>
-                    </td>
-                  )}
+      }
+    >
+      {isLoading ? (
+        <TableSkeleton rows={5} />
+      ) : isError ? (
+        <ErrorCard onRetry={() => refetch()} />
+      ) : reminders.length === 0 ? (
+        <EmptyState
+          icon={BellRing}
+          message="Tidak ada pengingat servis yang jatuh tempo."
+          actionLabel="Hitung Ulang"
+          onAction={() => calcMutation.mutate()}
+        />
+      ) : (
+        <div className="wc-card p-0 overflow-hidden">
+          <div className="hidden md:block overflow-x-auto">
+            <table className="wc-table">
+              <thead>
+                <tr>
+                  <th>Kendaraan</th>
+                  <th>Pelanggan</th>
+                  <th>Jatuh Tempo</th>
+                  <th>Status</th>
+                  <th>Jadwal</th>
+                  {canFollowup && <th className="text-right">Aksi</th>}
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {reminders.map((r: any) => (
+                  <tr key={r.id}>
+                    <td>
+                      <div className="flex flex-col items-start gap-1">
+                        <PlateChip plate={r.plate_current} />
+                        <span className="text-[12px] leading-4 text-[var(--text-muted)]">
+                          {r.brand} {r.model}
+                        </span>
+                      </div>
+                    </td>
+                    <td>
+                      <div className="text-[14px] leading-5 text-[var(--text)]">{r.customer_name}</div>
+                      <div className="font-mono text-[12px] leading-4 text-[var(--text-muted)]">
+                        {r.customer_phone}
+                      </div>
+                    </td>
+                    <td className="text-[14px] leading-5 text-[var(--text)]">
+                      {r.reason || formatDateId(r.due_date)}
+                    </td>
+                    <td>
+                      {r.status === 'CONTACTED' ? (
+                        <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-[6px] bg-[var(--success-bg)] text-[var(--success)] text-[12px] leading-4 font-medium">
+                          <CheckCircle2 className="w-3.5 h-3.5 stroke-[1.5]" />
+                          <span>Dihubungi</span>
+                        </span>
+                      ) : r.status === 'SKIPPED' ? (
+                        <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-[6px] bg-[var(--info-bg)] text-[var(--info)] text-[12px] leading-4 font-medium">
+                          <XCircle className="w-3.5 h-3.5 stroke-[1.5]" />
+                          <span>Dilewati</span>
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-[6px] bg-[var(--warning-bg)] text-[var(--warning)] text-[12px] leading-4 font-medium">
+                          <Clock className="w-3.5 h-3.5 stroke-[1.5]" />
+                          <span>Menunggu</span>
+                        </span>
+                      )}
+                    </td>
+                    <td className="text-[12px] leading-4 text-[var(--text-muted)]">
+                      {r.scheduled_visit_date ? formatDateId(r.scheduled_visit_date) : r.result || '-'}
+                    </td>
+                    {canFollowup && (
+                      <td className="text-right">
+                        <button
+                          type="button"
+                          onClick={() => setFollowupModal(r)}
+                          className="wc-row-action wc-btn-secondary min-h-[32px] py-1 px-2.5 text-[12px]"
+                        >
+                          <PhoneCall className="w-3.5 h-3.5 stroke-[1.5]" />
+                          <span>Hubungi</span>
+                        </button>
+                      </td>
+                    )}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="md:hidden divide-y divide-[var(--border)]">
+            {reminders.map((r: any) => (
+              <div key={r.id} className="p-4 space-y-2">
+                <div className="flex items-center justify-between gap-2">
+                  <PlateChip plate={r.plate_current} />
+                  {canFollowup && (
+                    <button
+                      type="button"
+                      onClick={() => setFollowupModal(r)}
+                      className="wc-btn-secondary min-h-[36px] text-[12px]"
+                    >
+                      <span>Hubungi</span>
+                    </button>
+                  )}
+                </div>
+                <div className="text-[14px] leading-5 text-[var(--text)]">
+                  {r.brand} {r.model} · {r.customer_name}
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
-      </div>
+      )}
 
       <Modal
         open={followupModal !== null}
         onClose={() => setFollowupModal(null)}
-        title={`Follow-up Pelanggan (${followupModal?.plate_current} - ${followupModal?.customer_name})`}
+        title={`Tindak Lanjut (${followupModal?.plate_current})`}
       >
         <form
           onSubmit={e => {
@@ -165,56 +211,54 @@ export const RemindersPage: React.FC = () => {
           className="space-y-4"
         >
           <div>
-            <label className="block text-xs font-medium mb-1">Status Follow-up</label>
+            <label className="block text-[12px] leading-4 font-medium text-[var(--text)] mb-1.5">
+              Status *
+            </label>
             <select
               value={followupForm.status}
               onChange={e => setFollowupForm(f => ({ ...f, status: e.target.value as any }))}
-              className="w-full h-10 px-3 rounded-[6px] border border-[var(--border)] bg-[var(--surface)] text-sm"
+              className="w-full wc-input"
             >
-              <option value="CONTACTED">CONTACTED (Sudah Dihubungi)</option>
-              <option value="SKIPPED">SKIPPED (Dilewati / Menolak)</option>
+              <option value="CONTACTED">Sudah dihubungi</option>
+              <option value="SKIPPED">Dilewati</option>
             </select>
           </div>
           {followupForm.status === 'CONTACTED' && (
             <div>
-              <label className="block text-xs font-medium mb-1">Rencana Tanggal Kunjungan Servis</label>
+              <label className="block text-[12px] leading-4 font-medium text-[var(--text)] mb-1.5">
+                Rencana kunjungan
+              </label>
               <input
                 type="date"
                 value={followupForm.scheduledVisitDate}
                 onChange={e => setFollowupForm(f => ({ ...f, scheduledVisitDate: e.target.value }))}
-                className="w-full h-10 px-3 rounded-[6px] border border-[var(--border)] text-sm font-mono"
+                className="w-full wc-input font-mono"
               />
             </div>
           )}
           <div>
-            <label className="block text-xs font-medium mb-1">Catatan Hasil / Alasan</label>
+            <label className="block text-[12px] leading-4 font-medium text-[var(--text)] mb-1.5">
+              Catatan *
+            </label>
             <textarea
               rows={2}
               required
               value={followupForm.result}
               onChange={e => setFollowupForm(f => ({ ...f, result: e.target.value }))}
-              className="w-full p-3 rounded-[6px] border border-[var(--border)] text-sm"
+              className="w-full p-3 rounded-[8px] border border-[var(--border-strong)] bg-[var(--surface)] text-[14px] leading-5"
             />
           </div>
           <div className="flex justify-end gap-2">
-            <button
-              type="button"
-              onClick={() => setFollowupModal(null)}
-              className="px-4 py-2 rounded-[6px] border border-[var(--border)] text-xs font-medium"
-            >
+            <button type="button" onClick={() => setFollowupModal(null)} className="wc-btn-secondary">
               Batal
             </button>
-            <button
-              type="submit"
-              disabled={updateFollowupMutation.isPending}
-              className="px-4 py-2 rounded-[6px] bg-[#1f3a5f] text-white text-xs font-semibold"
-            >
-              Simpan Follow-up
+            <button type="submit" disabled={updateFollowupMutation.isPending} className="wc-btn-primary">
+              Simpan
             </button>
           </div>
         </form>
       </Modal>
-    </div>
+    </PageLayout>
   );
 };
 
@@ -229,7 +273,12 @@ export const TechnicianPerformancePage: React.FC = () => {
     bonusThresholdPercent: 40,
   });
 
-  const { data, isLoading } = useQuery<any>({
+  const {
+    data,
+    isLoading,
+    isError,
+    refetch,
+  } = useQuery<any>({
     queryKey: ['performance', period],
     queryFn: () => apiFetch(`/performance?period=${encodeURIComponent(period)}`),
   });
@@ -246,7 +295,7 @@ export const TechnicianPerformancePage: React.FC = () => {
         }),
       }),
     onSuccess: () => {
-      showToast('Jam kerja tersedia & ambang bonus berhasil diperbarui', 'success');
+      showToast('Pengaturan disimpan', 'success');
       setConfigOpen(false);
       queryClient.invalidateQueries({ queryKey: ['performance'] });
     },
@@ -258,101 +307,93 @@ export const TechnicianPerformancePage: React.FC = () => {
   const thresholdPercent = data?.bonusThresholdPercent ?? 40;
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-xl sm:text-2xl font-bold">Kinerja & Bonus Teknisi (BR-06, BR-07)</h1>
-          <p className="text-xs sm:text-sm text-[var(--text-muted)]">
-            Produktivitas = Jam Produktif / Jam Tersedia × 100% (Bonus bila &gt; {thresholdPercent}%). Efisiensi = Waktu Standar / Waktu Aktual.
-          </p>
-        </div>
-
-        <div className="flex items-center gap-2.5 self-start">
+    <PageLayout
+      title="Kinerja Teknisi"
+      primaryAction={
+        canConfigure ? (
+          <button
+            type="button"
+            onClick={() => {
+              if (technicians[0]) {
+                setConfigForm({
+                  technicianId: technicians[0].technicianId,
+                  availableHours: technicians[0].availableHours,
+                  bonusThresholdPercent: thresholdPercent,
+                });
+              }
+              setConfigOpen(true);
+            }}
+            className="wc-btn-primary"
+          >
+            <Settings className="w-5 h-5 stroke-[1.5]" />
+            <span>Atur Jam</span>
+          </button>
+        ) : undefined
+      }
+      toolbar={
+        <div className="flex items-center gap-3 h-10">
+          <label htmlFor="perf-period" className="text-[14px] leading-5 text-[var(--text-muted)]">
+            Periode:
+          </label>
           <input
+            id="perf-period"
             type="month"
             value={period}
             onChange={e => setPeriod(e.target.value)}
-            className="h-10 px-3 rounded-[6px] border border-[var(--border)] bg-[var(--surface)] text-sm font-mono"
+            className="wc-input font-mono w-44"
           />
-          {canConfigure && (
-            <button
-              onClick={() => {
-                if (technicians[0]) {
-                  setConfigForm({
-                    technicianId: technicians[0].technicianId,
-                    availableHours: technicians[0].availableHours,
-                    bonusThresholdPercent: thresholdPercent,
-                  });
-                }
-                setConfigOpen(true);
-              }}
-              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-[6px] bg-[#1f3a5f] text-white text-xs font-semibold hover:bg-[#2c4f7c]"
-            >
-              <Settings className="w-4 h-4" /> Atur Jam & Ambang Bonus
-            </button>
-          )}
+          <span className="text-[12px] leading-4 text-[var(--text-muted)]">
+            Ambang bonus &gt; {thresholdPercent}%
+          </span>
         </div>
-      </div>
-
+      }
+    >
       {isLoading ? (
-        <div className="h-48 bg-[var(--surface)] rounded-[10px] border border-[var(--border)] animate-pulse" />
+        <TableSkeleton rows={4} />
+      ) : isError ? (
+        <ErrorCard onRetry={() => refetch()} />
+      ) : technicians.length === 0 ? (
+        <EmptyState icon={TrendingUp} message="Belum ada data kinerja untuk periode ini." />
       ) : (
-        <div className="bg-[var(--surface)] rounded-[10px] border border-[var(--border)] overflow-hidden">
+        <div className="wc-card p-0 overflow-hidden">
           <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse">
+            <table className="wc-table">
               <thead>
-                <tr className="bg-[var(--navy-50)] text-[var(--text-muted)] text-xs uppercase">
-                  <th className="py-3 px-4 font-semibold">Nama Teknisi</th>
-                  <th className="py-3 px-4 font-semibold text-right">Jam Produktif</th>
-                  <th className="py-3 px-4 font-semibold text-right">Jam Tersedia</th>
-                  <th className="py-3 px-4 font-semibold">Produktivitas (Ambang &gt;{thresholdPercent}%)</th>
-                  <th className="py-3 px-4 font-semibold text-right">Efisiensi Kerja</th>
-                  <th className="py-3 px-4 font-semibold">Status Bonus (BR-06)</th>
+                <tr>
+                  <th>Teknisi</th>
+                  <th className="text-right">Jam Produktif</th>
+                  <th className="text-right">Jam Tersedia</th>
+                  <th className="text-right">Produktivitas</th>
+                  <th className="text-right">Efisiensi</th>
+                  <th>Status Bonus</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-[var(--border)] text-sm">
+              <tbody>
                 {technicians.map(t => (
-                  <tr key={t.technicianId} className="hover:bg-[var(--navy-50)]">
-                    <td className="py-3.5 px-4">
-                      <div className="font-semibold">{t.name}</div>
-                      <div className="text-xs text-[var(--text-muted)]">{t.completedJobsCount} job selesai</div>
-                    </td>
-                    <td className="py-3.5 px-4 text-right font-mono tabular-nums font-semibold">
-                      {t.productiveHours} jam
-                    </td>
-                    <td className="py-3.5 px-4 text-right font-mono tabular-nums text-[var(--text-muted)]">
-                      {t.availableHours} jam
-                    </td>
-                    <td className="py-3.5 px-4 min-w-[220px]">
-                      <div className="flex items-center justify-between text-xs font-mono mb-1 tabular-nums">
-                        <span className="font-bold">{t.productivityPercent}%</span>
-                        <span className="text-[var(--text-muted)]">Ambang {thresholdPercent}%</span>
-                      </div>
-                      <div className="relative h-2.5 w-full rounded-full bg-[var(--navy-100)] overflow-hidden">
-                        <div
-                          className={`h-full rounded-full ${
-                            t.bonusEligible ? 'bg-[#2e8b57]' : 'bg-[#b36b00]'
-                          }`}
-                          style={{ width: `${Math.min(100, t.productivityPercent)}%` }}
-                        />
-                        <div
-                          title={`Garis ambang bonus ${thresholdPercent}%`}
-                          className="absolute top-0 bottom-0 w-0.5 bg-[#c0392b]"
-                          style={{ left: `${Math.min(100, thresholdPercent)}%` }}
-                        />
+                  <tr key={t.technicianId}>
+                    <td>
+                      <div className="font-medium text-[var(--text)]">{t.name}</div>
+                      <div className="text-[12px] leading-4 text-[var(--text-muted)] tabular-nums">
+                        {t.completedJobsCount} selesai
                       </div>
                     </td>
-                    <td className="py-3.5 px-4 text-right font-mono tabular-nums font-bold text-[#1f6fb2]">
-                      {t.efficiencyPercent}%
+                    <td className="text-right font-mono tabular-nums">{t.productiveHours} j</td>
+                    <td className="text-right font-mono tabular-nums text-[var(--text-muted)]">
+                      {t.availableHours} j
                     </td>
-                    <td className="py-3.5 px-4">
+                    <td className="text-right font-mono font-semibold tabular-nums">
+                      {t.productivityPercent}%
+                    </td>
+                    <td className="text-right font-mono tabular-nums">{t.efficiencyPercent}%</td>
+                    <td>
                       {t.bonusEligible ? (
-                        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded bg-[#e4f4ec] text-[#2e8b57] text-xs font-bold">
-                          <Award className="w-3.5 h-3.5" /> Berhak Bonus (&gt;{thresholdPercent}%)
+                        <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-[6px] bg-[var(--success-bg)] text-[var(--success)] text-[12px] leading-4 font-medium">
+                          <Award className="w-3.5 h-3.5 stroke-[1.5]" />
+                          <span>Berhak bonus</span>
                         </span>
                       ) : (
-                        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded bg-[#f3f6fa] text-[#5b6b82] text-xs font-medium">
-                          <XCircle className="w-3.5 h-3.5" /> Belum Mencapai Ambang
+                        <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-[6px] bg-[var(--info-bg)] text-[var(--info)] text-[12px] leading-4 font-medium">
+                          <span>Di bawah ambang</span>
                         </span>
                       )}
                     </td>
@@ -364,7 +405,7 @@ export const TechnicianPerformancePage: React.FC = () => {
         </div>
       )}
 
-      <Modal open={configOpen} onClose={() => setConfigOpen(false)} title="Atur Jam Kerja Tersedia & Ambang Bonus (BR-06)">
+      <Modal open={configOpen} onClose={() => setConfigOpen(false)} title="Atur Jam & Ambang Bonus">
         <form
           onSubmit={e => {
             e.preventDefault();
@@ -373,11 +414,13 @@ export const TechnicianPerformancePage: React.FC = () => {
           className="space-y-4"
         >
           <div>
-            <label className="block text-xs font-medium mb-1">Pilih Teknisi</label>
+            <label className="block text-[12px] leading-4 font-medium text-[var(--text)] mb-1.5">
+              Teknisi *
+            </label>
             <select
               value={configForm.technicianId}
               onChange={e => setConfigForm(f => ({ ...f, technicianId: Number(e.target.value) }))}
-              className="w-full h-10 px-3 rounded-[6px] border border-[var(--border)] bg-[var(--surface)] text-sm"
+              className="w-full wc-input"
             >
               {technicians.map(t => (
                 <option key={t.technicianId} value={t.technicianId}>
@@ -387,54 +430,57 @@ export const TechnicianPerformancePage: React.FC = () => {
             </select>
           </div>
           <div>
-            <label className="block text-xs font-medium mb-1">Jam Kerja Tersedia Bulan {period} (Jam)</label>
+            <label className="block text-[12px] leading-4 font-medium text-[var(--text)] mb-1.5">
+              Jam tersedia ({period}) *
+            </label>
             <input
               type="number"
               required
               min={1}
               value={configForm.availableHours}
               onChange={e => setConfigForm(f => ({ ...f, availableHours: Number(e.target.value) }))}
-              className="w-full h-10 px-3 rounded-[6px] border border-[var(--border)] text-sm font-mono"
+              className="w-full wc-input font-mono tabular-nums"
             />
           </div>
           <div>
-            <label className="block text-xs font-medium mb-1">Ambang Produktivitas Bonus (%)</label>
+            <label className="block text-[12px] leading-4 font-medium text-[var(--text)] mb-1.5">
+              Ambang bonus (%) *
+            </label>
             <input
               type="number"
               required
               min={10}
               max={95}
               value={configForm.bonusThresholdPercent}
-              onChange={e => setConfigForm(f => ({ ...f, bonusThresholdPercent: Number(e.target.value) }))}
-              className="w-full h-10 px-3 rounded-[6px] border border-[var(--border)] text-sm font-mono"
+              onChange={e =>
+                setConfigForm(f => ({ ...f, bonusThresholdPercent: Number(e.target.value) }))
+              }
+              className="w-full wc-input font-mono tabular-nums"
             />
           </div>
           <div className="flex justify-end gap-2">
-            <button
-              type="button"
-              onClick={() => setConfigOpen(false)}
-              className="px-4 py-2 rounded-[6px] border border-[var(--border)] text-xs font-medium"
-            >
+            <button type="button" onClick={() => setConfigOpen(false)} className="wc-btn-secondary">
               Batal
             </button>
-            <button
-              type="submit"
-              disabled={updateWorkHoursMutation.isPending}
-              className="px-4 py-2 rounded-[6px] bg-[#1f3a5f] text-white text-xs font-semibold"
-            >
-              Simpan Pengaturan
+            <button type="submit" disabled={updateWorkHoursMutation.isPending} className="wc-btn-primary">
+              Simpan
             </button>
           </div>
         </form>
       </Modal>
-    </div>
+    </PageLayout>
   );
 };
 
 export const MonthlyReportPage: React.FC = () => {
   const [period, setPeriod] = useState('2026-10');
 
-  const { data: report, isLoading } = useQuery<any>({
+  const {
+    data: report,
+    isLoading,
+    isError,
+    refetch,
+  } = useQuery<any>({
     queryKey: ['monthly-report', period],
     queryFn: () => apiFetch(`/reports/monthly?period=${encodeURIComponent(period)}`),
   });
@@ -452,127 +498,105 @@ export const MonthlyReportPage: React.FC = () => {
     a.remove();
   };
 
-  if (isLoading || !report) {
-    return <div className="h-64 bg-[var(--surface)] rounded-[10px] border border-[var(--border)] animate-pulse" />;
-  }
-
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-xl sm:text-2xl font-bold">Laporan Operasional & Keuangan Bulanan</h1>
-          <p className="text-xs sm:text-sm text-[var(--text-muted)]">
-            Ringkasan pendapatan invoice, pengeluaran bengkel, laba kotor, dan 10 spare part terlaris.
-          </p>
-        </div>
-
-        <div className="flex items-center gap-2.5 self-start">
+    <PageLayout
+      title="Laporan Bulanan"
+      primaryAction={
+        <button type="button" onClick={handleExportCsv} className="wc-btn-primary">
+          <Download className="w-5 h-5 stroke-[1.5]" />
+          <span>Unduh CSV</span>
+        </button>
+      }
+      toolbar={
+        <div className="flex items-center gap-3 h-10">
+          <label htmlFor="report-period" className="text-[14px] leading-5 text-[var(--text-muted)]">
+            Periode:
+          </label>
           <input
+            id="report-period"
             type="month"
             value={period}
             onChange={e => setPeriod(e.target.value)}
-            className="h-10 px-3 rounded-[6px] border border-[var(--border)] bg-[var(--surface)] text-sm font-mono"
+            className="wc-input font-mono w-44"
           />
-          <button
-            onClick={handleExportCsv}
-            className="inline-flex items-center gap-2 px-4 py-2 rounded-[6px] bg-[#1f3a5f] text-white text-xs sm:text-sm font-semibold hover:bg-[#2c4f7c]"
-          >
-            <Download className="w-4 h-4" />
-            <span>Ekspor CSV (Excel)</span>
-          </button>
         </div>
-      </div>
+      }
+    >
+      {isLoading ? (
+        <TableSkeleton rows={5} />
+      ) : isError || !report ? (
+        <ErrorCard onRetry={() => refetch()} />
+      ) : (
+        <div className="space-y-6">
+          {/* 3 Ringkasan Keuangan: maks 1 judul + 1 angka + 1 keterangan pendek */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
+            <div className="wc-card">
+              <div className="text-[12px] leading-4 font-medium text-[var(--text-muted)]">Pendapatan</div>
+              <div className="text-[24px] leading-8 font-semibold font-mono text-[var(--text)] mt-2 tabular-nums">
+                {formatRupiah(report.revenue)}
+              </div>
+              <div className="text-[12px] leading-4 text-[var(--text-muted)] mt-2">
+                {report.invoiceCount} invoice terbit
+              </div>
+            </div>
 
-      {/* 4 Financial KPI Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="bg-[var(--surface)] p-5 rounded-[10px] border border-[var(--border)]">
-          <div className="text-xs text-[var(--text-muted)] font-medium uppercase">Pendapatan ({period})</div>
-          <div className="text-2xl font-bold text-[#2e8b57] mt-1 font-mono tabular-nums">
-            {formatRupiah(report.revenue)}
+            <div className="wc-card">
+              <div className="text-[12px] leading-4 font-medium text-[var(--text-muted)]">Pengeluaran</div>
+              <div className="text-[24px] leading-8 font-semibold font-mono text-[var(--text)] mt-2 tabular-nums">
+                {formatRupiah(report.totalExpenses)}
+              </div>
+              <div className="text-[12px] leading-4 text-[var(--text-muted)] mt-2">
+                Operasional & part
+              </div>
+            </div>
+
+            <div className="wc-card">
+              <div className="text-[12px] leading-4 font-medium text-[var(--text-muted)]">Laba kotor</div>
+              <div className="text-[24px] leading-8 font-semibold font-mono text-[var(--success)] mt-2 tabular-nums">
+                {formatRupiah(report.grossProfit)}
+              </div>
+              <div className="text-[12px] leading-4 text-[var(--text-muted)] mt-2">
+                {report.closedWo} WO selesai
+              </div>
+            </div>
           </div>
-          <div className="text-xs text-[var(--text-muted)] mt-1">{report.invoiceCount} invoice terbit</div>
-        </div>
 
-        <div className="bg-[var(--surface)] p-5 rounded-[10px] border border-[var(--border)]">
-          <div className="text-xs text-[var(--text-muted)] font-medium uppercase">Total Pengeluaran</div>
-          <div className="text-2xl font-bold text-[#c0392b] mt-1 font-mono tabular-nums">
-            {formatRupiah(report.totalExpenses)}
+          {/* 10 Spare Part Terlaris */}
+          <div className="wc-card p-0 overflow-hidden">
+            <div className="px-6 py-4 border-b border-[var(--border)]">
+              <h2 className="text-h3">Pemakaian Part Tertinggi ({period})</h2>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="wc-table">
+                <thead>
+                  <tr>
+                    <th>Kode</th>
+                    <th>Nama Part</th>
+                    <th className="text-right">Terpakai</th>
+                    <th className="text-right">Nilai Penjualan</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {report.topParts.map((p: any) => (
+                    <tr key={p.id}>
+                      <td className="font-mono text-[12px] leading-4 text-[var(--text-muted)]">
+                        {p.code}
+                      </td>
+                      <td className="font-medium text-[var(--text)]">{p.name}</td>
+                      <td className="text-right font-mono tabular-nums">
+                        {p.total_qty} {p.unit}
+                      </td>
+                      <td className="text-right font-mono font-medium tabular-nums whitespace-nowrap">
+                        {formatRupiah(p.total_sales)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
-          <div className="text-xs text-[var(--text-muted)] mt-1">
-            Operasional + Pembelian Part
-          </div>
         </div>
-
-        <div className="bg-[var(--surface)] p-5 rounded-[10px] border border-[var(--border)]">
-          <div className="text-xs text-[var(--text-muted)] font-medium uppercase">Laba Kotor</div>
-          <div className="text-2xl font-bold text-[var(--text)] mt-1 font-mono tabular-nums">
-            {formatRupiah(report.grossProfit)}
-          </div>
-          <div className="text-xs text-[var(--text-muted)] mt-1">Pendapatan − Pengeluaran</div>
-        </div>
-
-        <div className="bg-[var(--surface)] p-5 rounded-[10px] border border-[var(--border)]">
-          <div className="text-xs text-[var(--text-muted)] font-medium uppercase">Jumlah Work Order</div>
-          <div className="text-2xl font-bold text-[var(--text)] mt-1 font-mono tabular-nums">
-            {report.totalWo} WO
-          </div>
-          <div className="text-xs text-[var(--text-muted)] mt-1">{report.closedWo} WO selesai ditutup</div>
-        </div>
-      </div>
-
-      {/* 5-Month Bar Chart (recharts) */}
-      <div className="bg-[var(--surface)] p-5 rounded-[10px] border border-[var(--border)] space-y-4">
-        <h2 className="text-base font-semibold">Grafik Tren Pendapatan vs Pengeluaran (5 Bulan Terakhir)</h2>
-        <div className="h-72 w-full">
-          <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={report.trend}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#d9e1ec" />
-              <XAxis dataKey="period" tick={{ fontSize: 12 }} />
-              <YAxis
-                tickFormatter={v => `${Math.round(v / 1_000_000)}Jt`}
-                tick={{ fontSize: 12 }}
-              />
-              <Tooltip formatter={(val: any) => formatRupiah(Number(val))} />
-              <Legend />
-              <Bar dataKey="revenue" name="Pendapatan" fill="#1f3a5f" radius={[4, 4, 0, 0]} />
-              <Bar dataKey="expenses" name="Pengeluaran" fill="#c9a227" radius={[4, 4, 0, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
-      </div>
-
-      {/* Top 10 Selling Spare Parts Table */}
-      <div className="bg-[var(--surface)] rounded-[10px] border border-[var(--border)] overflow-hidden">
-        <div className="px-5 py-4 border-b border-[var(--border)]">
-          <h2 className="text-base font-semibold">10 Spare Part Terlaris Periode {period}</h2>
-        </div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse">
-            <thead>
-              <tr className="bg-[var(--navy-50)] text-[var(--text-muted)] text-xs uppercase">
-                <th className="py-3 px-4 font-semibold">Kode</th>
-                <th className="py-3 px-4 font-semibold">Nama Spare Part</th>
-                <th className="py-3 px-4 font-semibold text-right">Qty Terpakai</th>
-                <th className="py-3 px-4 font-semibold text-right">Nilai Penjualan</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-[var(--border)] text-sm">
-              {report.topParts.map((p: any) => (
-                <tr key={p.id}>
-                  <td className="py-3 px-4 font-mono text-xs font-semibold">{p.code}</td>
-                  <td className="py-3 px-4 font-medium">{p.name}</td>
-                  <td className="py-3 px-4 text-right font-mono tabular-nums font-bold">
-                    {p.total_qty} {p.unit}
-                  </td>
-                  <td className="py-3 px-4 text-right font-mono tabular-nums font-semibold">
-                    {formatRupiah(p.total_sales)}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </div>
+      )}
+    </PageLayout>
   );
 };

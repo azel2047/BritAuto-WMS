@@ -1,20 +1,22 @@
 import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { Lock, LogIn, Tv, AlertCircle } from 'lucide-react';
+import { LogIn, Tv, AlertCircle } from 'lucide-react';
 import { apiFetch } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import { BritLogo } from '../components/domain/BritLogo';
+import { getHomeRouteForRole } from '../components/layout/AppShell';
+import type { Role } from '../../server/domain/src/auth';
 
-const DEMO_USERS = [
-  { username: 'agus', role: 'PM', label: 'Pemilik (Agus)' },
-  { username: 'sari', role: 'SA', label: 'Service Advisor (Sari)' },
-  { username: 'hasan', role: 'KR', label: 'Kepala Regu (Hasan)' },
-  { username: 'andi', role: 'TK', label: 'Teknisi 1 (Andi)' },
-  { username: 'budi', role: 'TK', label: 'Teknisi 2 (Budi)' },
-  { username: 'candra', role: 'TK', label: 'Teknisi 3 (Candra)' },
-  { username: 'dedi', role: 'TK', label: 'Teknisi 4 (Dedi)' },
-  { username: 'spare', role: 'SP', label: 'Spare Part (Hendra)' },
-  { username: 'admin', role: 'AD', label: 'Admin (Rina)' },
+const DEMO_USERS: { username: string; role: Role; label: string; person: string }[] = [
+  { username: 'sari', role: 'SA', label: 'Service Advisor', person: 'Sari' },
+  { username: 'hasan', role: 'KR', label: 'Kepala Regu', person: 'Hasan' },
+  { username: 'andi', role: 'TK', label: 'Teknisi 1', person: 'Andi' },
+  { username: 'budi', role: 'TK', label: 'Teknisi 2', person: 'Budi' },
+  { username: 'candra', role: 'TK', label: 'Teknisi 3', person: 'Candra' },
+  { username: 'dedi', role: 'TK', label: 'Teknisi 4', person: 'Dedi' },
+  { username: 'spare', role: 'SP', label: 'Spare Part', person: 'Hendra' },
+  { username: 'admin', role: 'AD', label: 'Admin', person: 'Rina' },
+  { username: 'agus', role: 'PM', label: 'Pemilik', person: 'Agus' },
 ];
 
 export const LoginPage: React.FC = () => {
@@ -28,6 +30,10 @@ export const LoginPage: React.FC = () => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg(null);
+    if (!username.trim() || !password.trim()) {
+      setErrorMsg('Nama pengguna dan sandi wajib diisi. Isi kedua kolom lalu coba lagi.');
+      return;
+    }
     setSubmitting(true);
     try {
       const res = await apiFetch<{ token: string; user: any }>('/auth/login', {
@@ -35,10 +41,10 @@ export const LoginPage: React.FC = () => {
         body: JSON.stringify({ username, password }),
       });
       login(res.token, res.user);
-      showToast(`Selamat datang, ${res.user.name}`, 'success');
-      navigate(res.user.role === 'PM' && window.innerWidth < 768 ? '/owner/mobile' : '/');
+      showToast(`Masuk sebagai ${res.user.name}`, 'success');
+      navigate(getHomeRouteForRole(res.user.role as Role));
     } catch (err: any) {
-      setErrorMsg(err.message || 'Gagal masuk. Periksa username dan kata sandi.');
+      setErrorMsg(err.message || 'Gagal masuk. Periksa nama pengguna dan sandi.');
     } finally {
       setSubmitting(false);
     }
@@ -55,8 +61,8 @@ export const LoginPage: React.FC = () => {
         body: JSON.stringify({ username: u, password: 'Brit2026!' }),
       });
       login(res.token, res.user);
-      showToast(`Masuk sebagai ${res.user.name} (${res.user.role})`, 'success');
-      navigate(res.user.role === 'PM' && window.innerWidth < 768 ? '/owner/mobile' : '/');
+      showToast(`Masuk sebagai ${res.user.name}`, 'success');
+      navigate(getHomeRouteForRole(res.user.role as Role));
     } catch (err: any) {
       setErrorMsg(err.message);
     } finally {
@@ -65,96 +71,101 @@ export const LoginPage: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-[#14243b] flex flex-col justify-center items-center p-4">
-      <div className="w-full max-w-md bg-[var(--surface)] text-[var(--text)] rounded-[10px] shadow-2xl border border-[var(--border)] overflow-hidden">
-        <div className="bg-[#1f3a5f] text-white px-6 py-6 flex flex-col items-center text-center border-b border-[#c9a227]/40">
-          <BritLogo size={64} showText={false} />
-          <h1 className="mt-3 text-xl font-bold tracking-tight text-white">Brit Auto WMS</h1>
-          <p className="text-xs text-white/75 mt-1">
-            Sistem Manajemen Operasional Spesialis Mobil Inggris
-          </p>
+    <main className="min-h-screen bg-[var(--bg)] flex flex-col justify-center items-center py-8 px-4">
+      <div className="w-full max-w-md wc-card space-y-6">
+        <div className="flex items-center justify-between pb-4 border-b border-[var(--border)]">
+          <BritLogo size={36} showText={true} />
+          <span className="font-mono text-[12px] leading-4 text-[var(--text-muted)]">WMS</span>
         </div>
 
-        <form onSubmit={handleSubmit} className="p-6 space-y-4">
+        <form onSubmit={handleSubmit} className="space-y-4" noValidate>
+          <h1 className="text-h1">Masuk Bengkel</h1>
+
           {errorMsg && (
             <div
+              id="login-error"
               role="alert"
-              className="p-3 rounded-[6px] bg-[#fbe7e4] border border-[#c0392b]/30 text-[#c0392b] text-xs font-medium flex items-start gap-2"
+              className="p-3 rounded-[8px] bg-[var(--danger-bg)] border border-[var(--danger)] text-[var(--danger)] text-[14px] leading-5 flex items-start gap-2"
             >
-              <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+              <AlertCircle className="w-5 h-5 stroke-[1.5] shrink-0 mt-0.5" aria-hidden="true" />
               <span>{errorMsg}</span>
             </div>
           )}
 
-          <div>
-            <label htmlFor="login-username" className="block text-xs font-medium text-[var(--text)] mb-1">
-              Username
-            </label>
-            <input
-              id="login-username"
-              type="text"
-              required
-              value={username}
-              onChange={e => setUsername(e.target.value)}
-              placeholder="Contoh: sari, agus, hasan, andi..."
-              className="w-full h-10 px-3 rounded-[6px] border border-[var(--border)] bg-[var(--surface)] text-sm focus:outline-none focus:ring-2 focus:ring-[#2c4f7c]"
-            />
+          <div className="space-y-4">
+            <div>
+              <label htmlFor="login-username" className="block text-[12px] leading-4 font-medium text-[var(--text)] mb-1.5">
+                Nama pengguna *
+              </label>
+              <input
+                id="login-username"
+                type="text"
+                required
+                autoComplete="username"
+                aria-invalid={!!errorMsg}
+                aria-describedby={errorMsg ? 'login-error' : undefined}
+                value={username}
+                onChange={e => setUsername(e.target.value)}
+                placeholder="sari"
+                className="w-full wc-input"
+              />
+            </div>
+
+            <div>
+              <label htmlFor="login-password" className="block text-[12px] leading-4 font-medium text-[var(--text)] mb-1.5">
+                Kata sandi *
+              </label>
+              <input
+                id="login-password"
+                type="password"
+                required
+                autoComplete="current-password"
+                aria-invalid={!!errorMsg}
+                aria-describedby={errorMsg ? 'login-error' : undefined}
+                value={password}
+                onChange={e => setPassword(e.target.value)}
+                placeholder="••••••••"
+                className="w-full wc-input"
+              />
+            </div>
           </div>
 
-          <div>
-            <label htmlFor="login-password" className="block text-xs font-medium text-[var(--text)] mb-1">
-              Kata Sandi
-            </label>
-            <input
-              id="login-password"
-              type="password"
-              required
-              value={password}
-              onChange={e => setPassword(e.target.value)}
-              className="w-full h-10 px-3 rounded-[6px] border border-[var(--border)] bg-[var(--surface)] text-sm focus:outline-none focus:ring-2 focus:ring-[#2c4f7c]"
-            />
-          </div>
-
-          <button
-            type="submit"
-            disabled={submitting}
-            className="w-full h-11 rounded-[6px] bg-[#1f3a5f] hover:bg-[#2c4f7c] text-white font-semibold text-sm flex items-center justify-center gap-2 transition-colors disabled:opacity-50"
-          >
-            <LogIn className="w-4 h-4" />
-            <span>{submitting ? 'Memverifikasi...' : 'Masuk ke Sistem'}</span>
+          <button type="submit" disabled={submitting} className="w-full wc-btn-primary">
+            <LogIn className="w-5 h-5 stroke-[1.5]" aria-hidden="true" />
+            <span>{submitting ? 'Memproses...' : 'Masuk'}</span>
           </button>
 
-          <div className="pt-3 border-t border-[var(--border)]">
-            <div className="flex items-center justify-between text-xs text-[var(--text-muted)] mb-2">
-              <span className="font-medium">Login Cepat Akun Demo (Sandi: Brit2026!)</span>
-              <Lock className="w-3.5 h-3.5" />
+          <div className="pt-4 border-t border-[var(--border)] space-y-2">
+            <div className="text-[12px] leading-4 font-medium text-[var(--text-muted)]">
+              Akun uji (1 ketuk)
             </div>
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5">
+            <div className="grid grid-cols-3 gap-2">
               {DEMO_USERS.map(u => (
                 <button
                   key={u.username}
                   type="button"
+                  disabled={submitting}
                   onClick={() => quickLogin(u.username)}
-                  className="px-2.5 py-1.5 text-left rounded-[6px] border border-[var(--border)] hover:bg-[var(--navy-50)] transition-colors"
+                  className="min-h-[44px] px-2.5 py-2 text-left rounded-[8px] border border-[var(--border)] bg-[var(--bg)] hover:border-[var(--border-strong)] transition-colors cursor-pointer"
                 >
-                  <div className="text-xs font-semibold text-[var(--text)] truncate">{u.username}</div>
-                  <div className="text-[10px] text-[var(--text-muted)] truncate">{u.label}</div>
+                  <div className="text-[14px] leading-5 font-semibold text-[var(--text)] truncate">{u.person}</div>
+                  <div className="text-[12px] leading-4 text-[var(--text-muted)] truncate">{u.label}</div>
                 </button>
               ))}
             </div>
           </div>
 
-          <div className="pt-2 text-center">
+          <div className="pt-2 border-t border-[var(--border)] flex justify-start">
             <Link
               to="/waiting-room"
-              className="inline-flex items-center gap-1.5 text-xs font-medium text-[#1f6fb2] hover:underline"
+              className="inline-flex items-center gap-2 min-h-[44px] text-[14px] leading-5 font-medium text-[var(--primary)] hover:underline"
             >
-              <Tv className="w-3.5 h-3.5" />
-              <span>Buka Layar Ruang Tunggu Pelanggan (Publik / Tanpa Login)</span>
+              <Tv className="w-5 h-5 stroke-[1.5]" aria-hidden="true" />
+              <span>Layar Ruang Tunggu</span>
             </Link>
           </div>
         </form>
       </div>
-    </div>
+    </main>
   );
 };

@@ -41,8 +41,12 @@ export async function apiFetch<T = any>(path: string, options: RequestInit = {})
 
   const contentType = res.headers.get('content-type') || '';
   if (!contentType.includes('application/json')) {
-    if (!res.ok) {
-      throw new ApiClientError(res.status, 'HTTP_ERROR', `Terjadi kesalahan (${res.status})`);
+    if (!res.ok || contentType.includes('text/html')) {
+      throw new ApiClientError(
+        res.status || 503,
+        'API_UNAVAILABLE',
+        `Layanan API sedang memuat ulang (${res.status})`
+      );
     }
     return (await res.text()) as unknown as T;
   }

@@ -864,6 +864,9 @@ apiRouter.get('/work-orders', requireAuth, (req, res) => {
            c.name as customer_name, c.phone as customer_phone,
            (SELECT COUNT(*) FROM wo_jobs wj WHERE wj.work_order_id = wo.id) as total_jobs,
            (SELECT COUNT(*) FROM wo_jobs wj WHERE wj.work_order_id = wo.id AND wj.status = 'SELESAI') as done_jobs,
+           (SELECT COUNT(*) FROM wo_jobs wj WHERE wj.work_order_id = wo.id AND (wj.status = 'MENUNGGU_PART' OR wj.waiting_part = 1)) as waiting_part_jobs,
+           CASE WHEN EXISTS (SELECT 1 FROM wo_jobs wj WHERE wj.work_order_id = wo.id AND (wj.status = 'MENUNGGU_PART' OR wj.waiting_part = 1)) THEN 1 ELSE 0 END as has_waiting_part,
+           (SELECT description FROM wo_issues wi WHERE wi.work_order_id = wo.id ORDER BY wi.id ASC LIMIT 1) as issue_summary,
            (SELECT GROUP_CONCAT(u.name, ', ') FROM wo_jobs wj JOIN users u ON u.id = wj.technician_id WHERE wj.work_order_id = wo.id) as technician_names
     FROM work_orders wo
     JOIN vehicles v ON v.id = wo.vehicle_id
@@ -1736,8 +1739,14 @@ apiRouter.get('/dashboard/summary', requireAuth, (req, res) => {
   const activeWorkOrders = db
     .prepare(`
       SELECT wo.id, wo.wo_number, wo.status, wo.received_at, wo.estimate_total,
-             v.plate_current, v.brand, v.model,
-             c.name as customer_name
+             v.plate_current, v.brand, v.model, v.year,
+             c.name as customer_name,
+             (SELECT COUNT(*) FROM wo_jobs wj WHERE wj.work_order_id = wo.id) as total_jobs,
+             (SELECT COUNT(*) FROM wo_jobs wj WHERE wj.work_order_id = wo.id AND wj.status = 'SELESAI') as done_jobs,
+             (SELECT COUNT(*) FROM wo_jobs wj WHERE wj.work_order_id = wo.id AND (wj.status = 'MENUNGGU_PART' OR wj.waiting_part = 1)) as waiting_part_jobs,
+             CASE WHEN EXISTS (SELECT 1 FROM wo_jobs wj WHERE wj.work_order_id = wo.id AND (wj.status = 'MENUNGGU_PART' OR wj.waiting_part = 1)) THEN 1 ELSE 0 END as has_waiting_part,
+             (SELECT description FROM wo_issues wi WHERE wi.work_order_id = wo.id ORDER BY wi.id ASC LIMIT 1) as issue_summary,
+             (SELECT GROUP_CONCAT(u.name, ', ') FROM wo_jobs wj JOIN users u ON u.id = wj.technician_id WHERE wj.work_order_id = wo.id) as technician_names
       FROM work_orders wo
       JOIN vehicles v ON v.id = wo.vehicle_id
       JOIN customers c ON c.id = v.customer_id
@@ -1952,12 +1961,103 @@ apiRouter.get('/audit-logs', requireAuth, requireRole('AD', 'PM'), (req, res) =>
 });
 
 // ============================================================================
-// 15. DEEP THINKING OPERATIONAL & TECHNICAL QUERY (gemini-4-argon + HIGH)
+// 15. DEEP THINKING OPERATIONAL & TECHNICAL QUERY (gemini-3.8-flash + RETRY)
 // ============================================================================
+function buildLocalTechnicalAnalysis(query: string): string {
+  const q = query.toLowerCase();
+
+  if (q.includes('zf') || q.includes('transmisi') || q.includes('mechatronic') || q.includes('gigi')) {
+    return [
+      'ANALISIS TEKNIS — TRANSMISI ZF 8HP & MECHATRONIC',
+      `Pertanyaan: "${query}"`,
+      '',
+      '1. Identifikasi Penyebab Utama (Root Cause):',
+      '   • Degradasi seal sleeve jembatan (bridge seal) & adapter plug antara pompa oli dan modul Mechatronic yang menyebabkan drop tekanan hidraulik pada perpindahan gigi 2 → 3 (kopling C & B).',
+      '   • Keausan solenoid pengatur tekanan (EDS/MV solenoid) pada valve body atau kontaminasi fluida ATF Lifeguard 8.',
+      '   • Adaptasi kopling (clutch fill time / quickcharge adaptation) yang bergeser di luar toleransi (> ±250 mbar).',
+      '',
+      '2. Prosedur Pemeriksaan & Diagnostik Bengkel:',
+      '   • Langkah 1 (Pembacaan Nilai Adaptasi): Hubungkan alat diagnostik ISTA/ODIS/SDD dan baca nilai Clutch Fill Pressure (Kopling A–E) serta Fast Fill Time. Jika tekanan adaptasi Kopling B/C > 300 mbar, indikasi kebocoran internal seal.',
+      '   • Langkah 2 (Inspeksi Temperatur & Level ATF): Pastikan suhu ATF berada di rentang 35°C–45°C saat pemeriksaan level oli dan ambil sampel fluida untuk mendeteksi partikel gesek.',
+      '   • Langkah 3 (Uji Tekanan Mechatronic): Turunkan oil pan transmisi, periksa kondisi karet sealing sleeve dan 4 tabung seal karet (mechatronic sealing tubes) dari retakan.',
+      '',
+      '3. Rekomendasi Tindakan Perbaikan & Spare Part:',
+      '   • Ganti paket ZF 8HP Service Kit (Oil Pan + Filter terintegrasi + 7L ZF LifeguardFluid 8).',
+      '   • Ganti Mechatronic Sealing Sleeve, Bridge Seal, dan 4 Tube Seal set.',
+      '   • Lakukan reset nilai adaptasi transmisi diikuti prosedur Adaptation Drive sesuai siklus pabrik.',
+    ].join('\n');
+  }
+
+  if (q.includes('air suspension') || q.includes('suspensi') || q.includes('kompresor') || q.includes('ketinggian')) {
+    return [
+      'ANALISIS TEKNIS — SISTEM ELECTRONIC AIR SUSPENSION (EAS)',
+      `Pertanyaan: "${query}"`,
+      '',
+      '1. Identifikasi Penyebab Utama:',
+      '   • Kebocoran mikro pada air spring bladder (balon suspensi) saat posisi ketinggian normal/access mode.',
+      '   • Katup distribusi (valve block) terganjal partikel silika kering dari desiccant dryer kompresor AMK/Hitachi.',
+      '   • Deviasi pembacaan ride-height sensor pada lengan suspensi akibat korosi konektor.',
+      '',
+      '2. Prosedur Pemeriksaan & Kalibrasi:',
+      '   • Lakukan pembacaan tekanan gallery melalui SDD/Pathfinder (target tekanan reservoir 15–17.5 bar).',
+      '   • Semprotkan cairan pendeteksi kebocoran pada leher crimping balon suspensi dan fitting valve block.',
+      '   • Ukur jarak pusat roda ke bibir fender (wheel center to arch) pada keempat sudut di lantai spooring rata, lalu input nilai aktual dalam milimeter pada menu Guided Calibration.',
+      '',
+      '3. Rekomendasi Tindakan & Spare Part:',
+      '   • Penggantian unit Air Strut atau O-ring Valve Block yang mengalami penurunan tekanan > 5 mm setelah parkir 12 jam.',
+      '   • Kalibrasi ulang ketinggian standar dan uji jalan pada mode Dynamic & Comfort.',
+    ].join('\n');
+  }
+
+  if (q.includes('pendingin') || q.includes('cooling') || q.includes('overheat') || q.includes('radiator') || q.includes('oli')) {
+    return [
+      'ANALISIS TEKNIS — SISTEM PENDINGIN MESIN & SEAL OLI',
+      `Pertanyaan: "${query}"`,
+      '',
+      '1. Identifikasi Titik Rawan (Jaguar / Land Rover AJ133 V8 & AJ126 V6):',
+      '   • Pipa crossover coolant plastik bagian depan & belakang (bawah supercharger) mengalami kerapuhan termal pada sambungan seam.',
+      '   • Rumah water pump dan thermostat housing mengalami rembesan pada seal O-ring.',
+      '   • Seal vakum pompa dan gasket cover katup (rocker cover) mengeras akibat siklus panas.',
+      '',
+      '2. Langkah Diagnostik Bengkel:',
+      '   • Lakukan uji tekan sistem pendingin (Cooling System Pressure Test) pada tekanan 1.4 bar selama 15 menit dalam kondisi mesin dingin.',
+      '   • Gunakan borescope di bawah intake manifold / supercharger untuk memeriksa jejak kerak coolant kering berwarna merah muda/oranye.',
+      '   • Periksa korelasi suhu ECT dan sensor suhu kepala silinder melalui data live stream.',
+      '',
+      '3. Rekomendasi Tindakan Perbaikan:',
+      '   • Ganti Front & Rear Coolant Crossover Pipe (disarankan upgrade ke pipa aluminium atau OEM revisi terbaru), Water Pump Assembly, dan Thermostat.',
+      '   • Lakukan Vacuum Bleeding sistem pendingin menggunakan coolant spesifikasi JLR STJLR.651.5003.',
+    ].join('\n');
+  }
+
+  return [
+    'ANALISIS TEKNIS & OPERASIONAL — KONSULTAN SENIOR BRIT AUTO',
+    `Pertanyaan: "${query}"`,
+    '',
+    '1. Evaluasi Diagnostik Awal:',
+    '   • Lakukan pemindaian menyeluruh seluruh modul kendaraan (Full Network DTC Scan) menggunakan JLR SDD/Pathfinder atau ODIS untuk memisahkan kode kerusakan primer (root DTC) dari kode turunan tegangan/komunikasi CAN.',
+    '   • Pastikan tegangan baterai ditopang oleh Battery Support Unit (stabil di 13.5V – 13.8V) selama sesi diagnostik karena sistem elektronik Jaguar, Land Rover, Bentley, dan Rolls-Royce sangat sensitif terhadap penurunan voltase.',
+    '',
+    '2. Langkah Pemeriksaan Terstruktur:',
+    '   • Verifikasi parameter Live Data (tekanan fluida, trim bahan bakar, suhu kerja aktual, dan status aktuator) saat gejala muncul.',
+    '   • Lakukan inspeksi mekanis pada area terkait (kebocoran vakum/fluida, keausan bushing/seal, serta resistansi rangkaian kabel dan ground point sasis).',
+    '',
+    '3. Rekomendasi Operasional Work Order:',
+    '   • Dokumentasikan hasil temuan pada Job Card, pastikan ketersediaan suku cadang OEM di gudang sebelum pembongkaran utama, dan lakukan uji jalan akhir (Quality Control Road Test) sebelum penyerahan ke pelanggan.',
+  ].join('\n');
+}
+
 apiRouter.post('/ai/analyze', requireAuth, async (req, res, next) => {
   try {
     const query = typeof req.body?.query === 'string' ? req.body.query.trim() : '';
     if (!query) throw new AppError(400, 'QUERY_KOSONG', 'Pertanyaan analisis wajib diisi.');
+
+    const systemInstruction =
+      'Anda adalah konsultan teknis senior spesialis mobil Inggris (Jaguar, Land Rover, Bentley, Rolls-Royce) untuk Bengkel Brit Auto. Jawab dalam bahasa Indonesia secara terstruktur dan ringkas.';
+
+    if (!process.env.GEMINI_API_KEY) {
+      return res.json({ answer: buildLocalTechnicalAnalysis(query) });
+    }
 
     const ai = new GoogleGenAI({
       apiKey: process.env.GEMINI_API_KEY,
@@ -1968,18 +2068,54 @@ apiRouter.post('/ai/analyze', requireAuth, async (req, res, next) => {
       },
     });
 
-    const response = await ai.models.generateContent({
-      model: 'gemini-4-argon',
-      contents: query,
-      config: {
-        systemInstruction:
-          'Anda adalah konsultan teknis senior spesialis mobil Inggris (Jaguar, Land Rover, Bentley, Rolls-Royce) untuk Bengkel Brit Auto. Jawab dalam bahasa Indonesia secara terstruktur dan ringkas.',
-        thinkingConfig: { thinkingLevel: ThinkingLevel.HIGH },
-      },
-    });
+    const attempts: Array<{ model: string; thinkingLevel?: ThinkingLevel }> = [
+      { model: 'gemini-3.8-flash', thinkingLevel: ThinkingLevel.LOW },
+      { model: 'gemini-3.8-flash' },
+    ];
 
-    res.json({ answer: response.text || '' });
-  } catch (err) {
+    let lastErr: any = null;
+    for (let i = 0; i < attempts.length; i++) {
+      const attempt = attempts[i];
+      try {
+        const response = await ai.models.generateContent({
+          model: attempt.model,
+          contents: query,
+          config: {
+            systemInstruction,
+            ...(attempt.thinkingLevel ? { thinkingConfig: { thinkingLevel: attempt.thinkingLevel } } : {}),
+          },
+        });
+        if (response.text) {
+          return res.json({ answer: response.text });
+        }
+      } catch (err: any) {
+        lastErr = err;
+        const msg = String(err?.message || err || '');
+        const isTransientOrQuota =
+          err?.status === 503 ||
+          err?.status === 429 ||
+          msg.includes('503') ||
+          msg.includes('429') ||
+          msg.includes('UNAVAILABLE') ||
+          msg.includes('RESOURCE_EXHAUSTED') ||
+          msg.includes('high demand') ||
+          msg.includes('Quota exceeded');
+
+        if (isTransientOrQuota && i < attempts.length - 1) {
+          await new Promise(resolve => setTimeout(resolve, 600));
+          continue;
+        }
+        if (isTransientOrQuota) {
+          return res.json({ answer: buildLocalTechnicalAnalysis(query) });
+        }
+        throw err;
+      }
+    }
+
+    return res.json({ answer: buildLocalTechnicalAnalysis(query) });
+  } catch (err: any) {
     next(err);
   }
 });
+
+

@@ -1,69 +1,373 @@
 @import "tailwindcss";
-@custom-variant dark (&:where(.dark, .dark *));
 
 :root {
-  --navy-900: #14243b;
-  --navy-800: #1f3a5f;
-  --navy-700: #2c4f7c;
-  --navy-100: #e6edf6;
-  --navy-50: #f3f6fa;
-  --gold-500: #c9a227;
-  --gold-100: #f6efd2;
-  --bg: #f6f8fb;
-  --surface: #ffffff;
-  --border: #d9e1ec;
-  --text: #14243b;
-  --text-muted: #5b6b82;
-  --text-inverse: #ffffff;
-  --success: #2e8b57;
-  --success-bg: #e4f4ec;
-  --warning: #b36b00;
-  --warning-bg: #fdf1dc;
-  --info: #1f6fb2;
-  --info-bg: #e2eefa;
-  --danger: #c0392b;
-  --danger-bg: #fbe7e4;
-  --radius: 10px;
-  --radius-sm: 6px;
-  --shadow: 0 1px 2px rgba(20, 36, 59, 0.06), 0 4px 12px rgba(20, 36, 59, 0.06);
+  /* Core Tokens — Buku Servis Bengkel Premium (WCAG AA Verified) */
+  --bg: #F6F8FB;
+  --surface: #FFFFFF;
+  --border: #D9E1EC;
+  --border-strong: #8FA0B8;
+  --text: #14243B;
+  --text-muted: #5B6B82;
+
+  --primary: #1F3A5F;
+  --on-primary: #FFFFFF;
+  --primary-hover: #2C4F7C;
+  --primary-subtle: #E6EDF6;
+
+  --brass: #C9A227;
+  --brass-text: #8A6D00;
+
+  /* 4 Semantic Status Colors Only */
+  --success: #1E6B42;
+  --success-bg: #E4F4EC;
+  --warning: #8A5200;
+  --warning-bg: #FDF1DC;
+  --info: #175A91;
+  --info-bg: #E2EEFA;
+  --danger: #A52A1E;
+  --danger-bg: #FBE7E4;
+
+  /* Aliases for backward compatibility */
+  --background: var(--bg);
+  --surface-muted: #F6F8FB;
+  --text-primary: var(--text);
+  --text-secondary: var(--text-muted);
+  --on-primary-subtle: var(--primary);
+  --error: var(--danger);
+  --error-bg: var(--danger-bg);
+  --ink-900: #14243B;
+  --ink-600: #5B6B82;
+  --ink-300: #8FA0B8;
+  --ink-200: #D9E1EC;
+  --ink-100: #F6F8FB;
+  --accent-chart: #1F3A5F;
+
+  /* Strict Radii & Single Popover Shadow */
+  --radius-card: 12px;
+  --radius-control: 8px;
+  --radius-badge: 6px;
+  --shadow-popover: 0 4px 16px rgba(20, 36, 59, 0.12);
 }
 
-.dark {
-  --bg: #0f1826;
-  --surface: #16233a;
-  --border: #2a3b57;
-  --text: #e8eef7;
-  --text-muted: #9fb0c8;
-  --navy-100: #1d2f4c;
-  --navy-50: #142038;
-  --gold-100: #3a3217;
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
+html {
+  font-size: 16px;
+  -webkit-text-size-adjust: 100%;
 }
 
 body {
   background-color: var(--bg);
   color: var(--text);
-  font-family: 'Inter', system-ui, -apple-system, sans-serif;
-  line-height: 1.5;
+  font-family: 'IBM Plex Sans', system-ui, -apple-system, sans-serif;
+  font-size: 14px;
+  line-height: 20px;
   margin: 0;
   overflow-x: hidden;
+  -webkit-font-smoothing: antialiased;
 }
 
-h1, h2, h3, .font-display {
-  font-family: 'Plus Jakarta Sans', 'Inter', system-ui, sans-serif;
-  line-height: 1.25;
+h1, h2, h3, h4, .font-display {
+  font-family: 'IBM Plex Sans', system-ui, -apple-system, sans-serif;
+  color: var(--text);
+  margin: 0;
+}
+
+/* Strict Type Scale: 12 / 14 / 16 / 20 / 24 / 32 px */
+.text-display {
+  font-size: 32px;
+  line-height: 40px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.text-h1 {
+  font-size: 24px;
+  line-height: 32px;
+  font-weight: 600;
+}
+
+.text-h2 {
+  font-size: 20px;
+  line-height: 28px;
+  font-weight: 600;
+}
+
+.text-h3 {
+  font-size: 16px;
+  line-height: 24px;
+  font-weight: 600;
+}
+
+/* Monospace strictly for License Plates, WO Numbers, Invoice Numbers, and Table Money */
+.font-mono {
+  font-family: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-variant-numeric: tabular-nums;
 }
 
 .tabular-nums {
   font-variant-numeric: tabular-nums;
 }
 
-@keyframes flashGold {
-  0% { background-color: var(--gold-100); }
-  100% { background-color: transparent; }
+/* Signature Visual Element: Chip Plat Nomor */
+.plate-chip,
+.text-plate {
+  display: inline-flex;
+  align-items: center;
+  font-family: 'IBM Plex Mono', ui-monospace, SFMono-Regular, monospace;
+  font-size: 14px;
+  line-height: 20px;
+  font-weight: 600;
+  background-color: #FFFFFF;
+  color: #14243B;
+  border: 1.5px solid #14243B;
+  border-radius: 6px;
+  padding: 2px 8px;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
 }
 
-.flash-gold {
-  animation: flashGold 1.5s ease-out;
+.plate-chip-lg {
+  display: inline-flex;
+  align-items: center;
+  font-family: 'IBM Plex Mono', ui-monospace, SFMono-Regular, monospace;
+  font-size: 16px;
+  line-height: 24px;
+  font-weight: 600;
+  background-color: #FFFFFF;
+  color: #14243B;
+  border: 1.5px solid #14243B;
+  border-radius: 6px;
+  padding: 4px 10px;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
+}
+
+/* Single-Elevation Cards (Border 1px, No Shadow, Radius 12px) */
+.wc-card {
+  background-color: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  padding: 20px;
+}
+
+@media (min-width: 640px) {
+  .wc-card {
+    padding: 24px;
+  }
+}
+
+.wc-card-hover:hover {
+  border-color: var(--border-strong);
+}
+
+.wc-card-selected {
+  border: 1.5px solid var(--primary) !important;
+}
+
+.wc-tile {
+  background-color: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  padding: 16px;
+}
+
+/* Inputs & Selects — 40px Desktop, 48px Mobile, 8px Radius */
+.wc-input {
+  height: 48px;
+  padding: 8px 12px;
+  border-radius: var(--radius-control);
+  border: 1px solid var(--border-strong);
+  background-color: var(--surface);
+  color: var(--text);
+  font-family: 'IBM Plex Sans', system-ui, sans-serif;
+  font-size: 16px;
+  line-height: 24px;
+  transition: border-color 150ms ease;
+}
+
+@media (min-width: 768px) {
+  .wc-input {
+    height: 40px;
+    font-size: 14px;
+    line-height: 20px;
+  }
+}
+
+.wc-input::placeholder {
+  color: var(--text-muted);
+}
+
+.wc-input:hover:not(:disabled) {
+  border-color: var(--text);
+}
+
+.wc-input:focus,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+button:focus-visible,
+a:focus-visible,
+[role="button"]:focus-visible {
+  outline: 2px solid var(--primary-hover);
+  outline-offset: 2px;
+}
+
+/* Buttons — 8px Radius, >=44px Touch Target on Mobile */
+.wc-btn-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 8px 16px;
+  border-radius: var(--radius-control);
+  background-color: var(--primary);
+  color: var(--on-primary);
+  border: 1px solid var(--primary);
+  font-size: 14px;
+  line-height: 20px;
+  font-weight: 500;
+  white-space: nowrap;
+  flex-shrink: 0;
+  cursor: pointer;
+  transition: background-color 150ms ease;
+}
+
+@media (min-width: 768px) {
+  .wc-btn-primary {
+    min-height: 40px;
+  }
+}
+
+.wc-btn-primary:hover:not(:disabled) {
+  background-color: var(--primary-hover);
+  border-color: var(--primary-hover);
+}
+
+.wc-btn-secondary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 8px 16px;
+  border-radius: var(--radius-control);
+  background-color: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border-strong);
+  font-size: 14px;
+  line-height: 20px;
+  font-weight: 500;
+  white-space: nowrap;
+  flex-shrink: 0;
+  cursor: pointer;
+  transition: background-color 150ms ease, border-color 150ms ease;
+}
+
+@media (min-width: 768px) {
+  .wc-btn-secondary {
+    min-height: 40px;
+  }
+}
+
+.wc-btn-secondary:hover:not(:disabled) {
+  background-color: var(--bg);
+  border-color: var(--text);
+}
+
+.wc-btn-danger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 8px 16px;
+  border-radius: var(--radius-control);
+  background-color: var(--danger-bg);
+  color: var(--danger);
+  border: 1px solid var(--danger);
+  font-size: 14px;
+  line-height: 20px;
+  font-weight: 500;
+  white-space: nowrap;
+  flex-shrink: 0;
+  cursor: pointer;
+}
+
+.wc-btn-primary:disabled,
+.wc-btn-secondary:disabled,
+.wc-btn-danger:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* Clean Table System: 48px row height, sticky 12px/500 muted header (no uppercase), horizontal dividers only */
+.wc-table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+  font-size: 14px;
+  line-height: 20px;
+}
+
+.wc-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background-color: var(--surface);
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 16px;
+  font-weight: 500;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+.wc-table tbody tr {
+  height: 48px;
+  border-bottom: 1px solid var(--border);
+  transition: background-color 120ms ease;
+}
+
+.wc-table tbody tr:last-child {
+  border-bottom: none;
+}
+
+.wc-table tbody tr:hover {
+  background-color: var(--bg);
+}
+
+.wc-table tbody td {
+  padding: 10px 16px;
+  vertical-align: middle;
+}
+
+/* Hover-reveal row action on desktop */
+@media (min-width: 1024px) {
+  .wc-row-action {
+    opacity: 0;
+    transition: opacity 120ms ease;
+  }
+  .wc-table tbody tr:hover .wc-row-action,
+  .wc-table tbody tr:focus-within .wc-row-action,
+  .wc-row-action:focus-visible {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }
 
 @media print {
@@ -71,8 +375,8 @@ h1, h2, h3, .font-display {
     display: none !important;
   }
   body {
-    background: #ffffff !important;
-    color: #000000 !important;
+    background: #FFFFFF !important;
+    color: #14243B !important;
   }
   .print-only {
     display: block !important;
